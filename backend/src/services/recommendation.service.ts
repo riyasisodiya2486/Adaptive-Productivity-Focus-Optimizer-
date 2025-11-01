@@ -1,11 +1,16 @@
 import axios from "axios";
+import dotenv from "dotenv";
 import { Session } from "../models/session.model";
+import { HfInference } from "@huggingface/inference";
+dotenv.config();
 
-
-const MODEL_NAME =  "gpt2";
-const HUGGINGFACE_API_KEY = process.env.HF_API_TOKEN;
+const MODEL_NAME =  "openai-community/gpt2";
 const HUGGINGFACE_API_URL = `https://api-inference.huggingface.co/models/${MODEL_NAME}`;
+const HUGGINGFACE_API_KEY = process.env.HF_API_TOKEN;
 
+if (!HUGGINGFACE_API_KEY) {
+    throw new Error("HF_API_TOKEN environment variable is not set");
+}
 
 export async function generateAdaptiveRecommendation(
     userId: string,
