@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base theme transition */
+html, body {
+  @apply transition-colors duration-500;
+}
+
+/* 🌞 Light mode (default) */
+body {
+  @apply bg-gray-50 text-gray-900;
+}
+
+/* 🌙 Dark mode */
+.dark body {
+  @apply bg-[#0B0B0F] text-gray-100;
+}
+
+/* 💎 Card styles */
+.card {
+  @apply rounded-2xl p-6 shadow-lg transition-all duration-300;
+}
+
+/* Dark Mode Cards */
+.dark .card {
+  @apply bg-[#18181d] text-gray-100 hover:bg-[#1f1f25];
+}
+
+/* Light Mode Cards */
+body:not(.dark) .card {
+  @apply bg-white text-gray-900 hover:bg-gray-100;
+}
+
+/* ✨ Gradient text */
+.gradient-text {
+  background: linear-gradient(90deg, #a855f7, #7c3aed);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-out;
+}
