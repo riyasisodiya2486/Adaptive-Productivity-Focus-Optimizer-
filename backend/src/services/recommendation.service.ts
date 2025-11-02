@@ -1,11 +1,8 @@
 import axios from "axios";
 import dotenv from "dotenv";
 import { Session } from "../models/session.model";
-import { HfInference } from "@huggingface/inference";
 dotenv.config();
 
-const MODEL_NAME =  "openai-community/gpt2";
-const HUGGINGFACE_API_URL = `https://api-inference.huggingface.co/models/${MODEL_NAME}`;
 const HUGGINGFACE_API_KEY = process.env.HF_API_TOKEN;
 
 if (!HUGGINGFACE_API_KEY) {
@@ -17,53 +14,61 @@ export async function generateAdaptiveRecommendation(
     session: any,
     lastRecommendation: string = ""
 ): Promise<string> {
-    try{
+    try {
         const focusData = session.focusTimeline.slice(-3);
         const avgFocus = session.statistics?.averageFocusScore || 0;
-        //@ts-ignore
-        const lastReasons = focusData.flatMap(entry => entry.distractionDetected ?? []);
+        const lastReasons = focusData.flatMap((entry: any) => entry.distractionDetected ? [entry.distractionDetected] : []);
         const sessionDuration = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 60000);
-        //@ts-ignore
-        const lastRecs = (session.recommendation ?? []).slice(-3).map(r => r.text);
+        const lastRecs = (session.recommendation ?? []).slice(-3).map((r: any) => r.text);
 
-        const prompt = `
-        You are a productivity coach.
-        The user's recent work session shows signs of low focus.
-
-        - Average focus score: ${avgFocus}%
-        - Session Duration: ${sessionDuration} minutes
-        - Recent Distraction Reasons: ${lastReasons.join(", ") || "none recorded"}
-        - work context: ${session.category || "general"} task
-        - User ID: ${userId}
-        - last Recommendation Given: "${lastRecs || 'none'}"
-
-        Avoid repeating the last recommendation unless context demands it.
-        Give a **1-line short, practical suggestion** to improve focus or wellbeing.
-        only return the suggestion, no extra commentary.
-        `;
+        const messages = [
+            {
+                role: "system",
+                content: "You are a productivity coach giving short, actionable suggestions."
+            },
+            {
+                role: "user",
+                content: `The user's recent work session shows signs of low focus.
+                        User ID: ${userId}
+                        Average focus score: ${avgFocus}%
+                        Session duration: ${sessionDuration} minutes
+                        Recent distraction reasons: ${lastReasons.join(", ") || "none recorded"}
+                        Last recommendations given: ${lastRecommendation || lastRecs.join(", ") || "none"}
+                        Work context: ${session.category || "general"} task
+                        Avoid repeating the last recommendation unless context demands it.
+                        Please provide a 1-line practical suggestion to improve focus or wellbeing.
+                        Only respond with the suggestion, no extra commentary.
+                `.trim()
+            }
+        ];
 
         const response = await axios.post(
-            HUGGINGFACE_API_URL,
-            {inputs: prompt},
+            "https://router.huggingface.co/v1/chat/completions",
             {
-                headers: {Authorization: `Bearer ${HUGGINGFACE_API_KEY}`},
+                model: "deepseek-ai/DeepSeek-R1:novita",
+                messages
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
+                    "Content-Type": "application/json"
+                }
             }
         );
-        
-        const rawText = response.data?.[0]?.generated_text || " ";
-        const text = rawText.replace(prompt, "").trim();
-        
-        //Store recommendation for personalization
-        if(!Array.isArray(session.recommendation)) session.recommendation = [];
+
+        const suggestion = response.data?.choices?.[0]?.message?.content?.trim() || "Take a short break and refocus your mind.";
+
+        // Store recommendation for personalization
+        if (!Array.isArray(session.recommendation)) session.recommendation = [];
         session.recommendation.push({
             timestamp: new Date(),
-            text,
-        })
+            text: suggestion,
+        });
         await session.save();
 
-        return text || `take a short break and re-focus your mind. ${lastReasons}`
-    } catch(err){
+        return suggestion;
+    } catch (err) {
         console.error("[Recommender] Error generating adaptive recommendation:", err);
-        return "Take a short break and re-focus your mind.";
+        return "Take a short break and refocus your mind.";
     }
 }
