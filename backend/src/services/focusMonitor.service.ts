@@ -15,7 +15,7 @@ export class FocusMonitor {
         const intervalId = setInterval(async () => {
             try {
                 const session = await Session.findById(sessionId);
-                if (!session) {
+                if (!session || !session.status) {
                     console.log(`[Focus Monitor] Session ${sessionId} not found. Stopping monitoring.`);
                     this.stopMonitoring(sessionId);
                     return;
@@ -194,7 +194,7 @@ export class FocusMonitor {
     }
 
     // Resume monitoring for all active sessions
-    static async resumeAllActiveSessions(intervalMinutes: number = 5): Promise<void> {
+    static async resumeAllActiveSession(intervalMinutes: number = 5): Promise<void> {
         try {
             const activeSessions = await Session.find({ status: "active" });
             console.log(`[Focus Monitor] Resuming monitoring for ${activeSessions.length} active sessions...`);

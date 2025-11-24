@@ -7,7 +7,7 @@ const router = Router();
 router.use(authenticateToken);
 
 //session management
-router.post('/', startSession);
+router.post('/start', startSession);
 router.get('/current', getCurrentSession);
 router.get('/', getSessions);
 router.get('/:id', getSession);

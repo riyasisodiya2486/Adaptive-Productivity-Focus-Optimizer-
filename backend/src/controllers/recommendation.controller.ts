@@ -1,19 +1,20 @@
 import { Request, Response } from "express";
 import { Recommendation } from "../models/recommendations.model";
-import { error } from "console";
+import { error, timeStamp } from "console";
 import { Session } from "../models/session.model";
+import mongoose from "mongoose";
 
-export const getLatestRecommendation = async (req: Request, res: Response) => {
+export const getActiveSessionRecommendation = async (req: Request, res: Response) => {
     const userId = (req as any).userId;
     try{
-        const lastest = await Recommendation.findOne({userId}).sort({timestamp: -1});
-        if(!lastest){
+        const lastestRec = await Recommendation.findOne({userId}).sort({timestamp: -1}).limit(1);
+        if(!lastestRec){
             return res.status(404).json({
                 msg: "no recommendation found"
             })
         }
-        res.json({
-            lastest
+        return res.json({
+            lrecommendation: lastestRec
         })
     } catch(err) {
         return res.status(500).json({
@@ -66,5 +67,20 @@ export const postRecommendationFeedback = async(req: Request, res: Response) => 
          res.status(500).json({
             error: err || "Failed to record feedback"
         });
+    }
+}
+
+export const getRecommendationHistory = async(req: Request, res: Response) => {
+    const userId = (req as any).userId;
+    try{
+        console.log("Looking up recommendations for userId:", userId);
+        const history = await Recommendation.find({
+            userId: new mongoose.Types.ObjectId(userId)
+        }).sort({timestamp: -1});
+        return res.json({
+            history
+        })
+    }catch(err) {
+        res.status(500).json({ msg: "failed to fetch recommendation history" });
     }
 }

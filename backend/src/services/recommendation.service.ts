@@ -1,9 +1,9 @@
 import axios from "axios";
 import dotenv from "dotenv";
-import { Session } from "../models/session.model";
+import { Recommendation } from "../models/recommendations.model";
 dotenv.config();
 
-const HUGGINGFACE_API_KEY = process.env.HF_API_TOKEN;
+const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
 if (!HUGGINGFACE_API_KEY) {
     throw new Error("HF_API_TOKEN environment variable is not set");
@@ -15,30 +15,34 @@ export async function generateAdaptiveRecommendation(
     lastRecommendation: string = ""
 ): Promise<string> {
     try {
+        const now = new Date();
+        const sessionStart = new Date(session.startTime);
+        const minutesSinceStart = Math.floor((now.getTime() - sessionStart.getTime()) / 60000);
         const focusData = session.focusTimeline.slice(-3);
         const avgFocus = session.statistics?.averageFocusScore || 0;
         const lastReasons = focusData.flatMap((entry: any) => entry.distractionDetected ? [entry.distractionDetected] : []);
-        const sessionDuration = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 60000);
-        const lastRecs = (session.recommendation ?? []).slice(-3).map((r: any) => r.text);
+        const recentApps = session.statistics?.recentApps ?? [];
+        const lastRecs = (session.recommendations ?? []).slice(-3).map((r: any) => r.text);
+        const lastAdvice = lastRecs.slice(-1)[0] || "none";
+
+        const contextSummary = `
+                                Session start: ${sessionStart.toLocaleTimeString()} (${minutesSinceStart} min ago)
+                                Current site/app(s): ${recentApps.join(", ") || "unknown"}
+                                Average focus score: ${avgFocus}%
+                                Recent distractions: ${lastReasons.join(", ") || "none"}
+                                Last advice: "${lastAdvice}"
+                                Current mode: ${session.category || "general"}
+                                Provide a new, timely tip or suggestion (1 sentence), different from previous advice, customized for this context.
+                                `.trim();
 
         const messages = [
             {
                 role: "system",
-                content: "You are a productivity coach giving short, actionable suggestions."
+                content: "You are a productivity coach generating personalized, evolving suggestions with each prompt."
             },
             {
                 role: "user",
-                content: `The user's recent work session shows signs of low focus.
-                        User ID: ${userId}
-                        Average focus score: ${avgFocus}%
-                        Session duration: ${sessionDuration} minutes
-                        Recent distraction reasons: ${lastReasons.join(", ") || "none recorded"}
-                        Last recommendations given: ${lastRecommendation || lastRecs.join(", ") || "none"}
-                        Work context: ${session.category || "general"} task
-                        Avoid repeating the last recommendation unless context demands it.
-                        Please provide a 1-line practical suggestion to improve focus or wellbeing.
-                        Only respond with the suggestion, no extra commentary.
-                `.trim()
+                content: contextSummary
             }
         ];
 
@@ -55,15 +59,35 @@ export async function generateAdaptiveRecommendation(
                 }
             }
         );
-
+        
         const suggestion = response.data?.choices?.[0]?.message?.content?.trim() || "Take a short break and refocus your mind.";
 
-        // Store recommendation for personalization
-        if (!Array.isArray(session.recommendation)) session.recommendation = [];
-        session.recommendation.push({
+        const priority: 'low'| 'medium' | 'high'= 
+         avgFocus < 30 ? 'high': avgFocus < 50 ? 'medium' : 'low';
+
+        const type: 'break' | 'work' | 'study' = 
+            session.type === "break" ? "break" : "work";   
+
+        const newRec = new Recommendation({
+            userId,
+            sessionId: session._id,
             timestamp: new Date(),
-            text: suggestion,
+            prompt: contextSummary,
+            type,
+            priority,
+            recommendation: suggestion,
+            context: {
+                focusScore: avgFocus,
+                sessionDuration: session.duration,
+                recentActivity: recentApps.join(", "),
+                distractions: lastReasons
+            }
         });
+        await newRec.save();
+
+        // link recommendation to session refrence array and save session
+        if (!Array.isArray(session.recommendations)) session.recommendations = [];
+            session.recommendations.push(newRec._id);
         await session.save();
 
         return suggestion;

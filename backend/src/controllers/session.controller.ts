@@ -1,9 +1,10 @@
 import mongoose from "mongoose";
 import { Request, Response } from "express";
 import { Session } from "../models/session.model";
+import  "../models/recommendations.model";
 import { FocusMonitor } from "../services/focusMonitor.service";
 import { FocusCalculator } from "../services/focusCalculator.service";
-import { Recommendation } from "../models/recommendations.model";
+
 
 export const startSession = async( req:Request, res:Response) =>{
     try{
@@ -39,6 +40,8 @@ export const startSession = async( req:Request, res:Response) =>{
             },
             recommendations: [],
         });
+        FocusMonitor.startMonitoring(session._id.toString(), 5);
+        
         return res.json({
             msg: "Session started successfully",
             session

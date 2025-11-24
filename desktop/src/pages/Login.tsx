@@ -1,6 +1,9 @@
 import React, { useState } from "react";
+import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
+import axios from "axios";
+import { BACKEND_URL } from "./config";
 
 type LoginForm = {
   email: string;
@@ -12,143 +15,145 @@ const Login = () => {
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors }
   } = useForm<LoginForm>();
   const [error, setError] = useState("");
 
-  const Input = React.forwardRef(
-    ({ label, type, placeholder, ...props }: any, ref: any) => (
-      <div>
-        {label && (
-          <label className="block text-zinc-300 font-medium mb-2">{label}</label>
-        )}
-        <input
-          ref={ref}
-          type={type}
-          placeholder={placeholder}
-          className="w-full px-4 py-2 border border-zinc-700 bg-zinc-900/60 
-                     text-zinc-100 rounded-lg focus:outline-none 
-                     focus:ring-2 focus:ring-purple-600 focus:border-transparent 
-                     transition-all duration-200 placeholder-zinc-500"
-          {...props}
-        />
-      </div>
-    )
-  );
-
-  const Button = ({ children, ...props }: any) => (
-    <button
-      {...props}
-      className="w-full py-2 px-4 bg-gradient-to-r from-[#7E22CE] to-[#6B21A8]
-                 hover:from-[#8B5CF6] hover:to-[#7C3AED]
-                 text-white font-semibold rounded-lg 
-                 focus:outline-none focus:ring-2 focus:ring-purple-500 
-                 transition-all duration-300 shadow-md shadow-purple-900/30"
-    >
-      {children}
-    </button>
-  );
-
-  const Logo = () => (
-    <div className="absolute top-6 left-8 flex items-center space-x-3">
-      <div className="flex items-center justify-center w-10 h-10 
-                      bg-gradient-to-r from-[#7E22CE] to-[#6B21A8] 
-                      rounded-lg shadow-md">
-        <span className="text-white font-bold text-xl">F</span>
-      </div>
-      <span className="text-zinc-100 text-lg font-semibold tracking-wide">
-        FlowState
-      </span>
-    </div>
-  );
-
-  const onSubmit = (data: LoginForm) => {
+  const onSubmit = async (data: LoginForm) => {
+    setError(""); // clear previous errors
     try {
-      if (!data.email || !data.password) {
-        setError("Please fill all fields.");
-        return;
-      }
-      alert(`Welcome back!`);
-      navigate("/");
-    } catch (err) {
-      setError("Something went wrong. Try again later.");
+      const res = await axios.post(BACKEND_URL + "/auth/login", data);
+      if (res.data.token) {
+        const token = res.data.token;
+        localStorage.setItem("token", token);
+        //@ts-ignore
+        if (window.electronAPI) window.electronAPI.sendTokenToPython(token);
+        navigate("/dashboard");
+      } else setError(res.data.msg || "Invalid credentials");
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.msg ||
+        err?.message ||
+        "Server error. Please try again later."
+      );
     }
   };
 
   return (
-    <div
-      className="relative flex items-center justify-center w-full min-h-screen 
-                 overflow-hidden bg-[#0b0b0f] text-white"
+    <motion.div
+      className="min-h-screen flex flex-col md:flex-row bg-[#0b0b0f] text-white overflow-hidden"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.8, ease: "easeInOut" }}
     >
-      {/* Abstract background pattern - zinc + plum tones */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-32 -left-40 w-[650px] h-[650px]
-                        bg-gradient-to-br from-[#2D0B45] via-[#0b0b0f] to-[#18181b]
-                        rounded-full blur-3xl opacity-50 animate-pulse"></div>
-
-        <div className="absolute bottom-0 right-0 w-[700px] h-[700px]
-                        bg-gradient-to-tl from-[#3B0764] via-[#0b0b0f] to-[#1e1e23]
-                        rounded-full blur-3xl opacity-40 animate-pulse"></div>
-
-        <div className="absolute top-1/2 left-1/2 w-[900px] h-[900px]
-                        bg-gradient-to-tr from-[#6B21A8]/40 via-transparent to-[#0b0b0f]
-                        -translate-x-1/2 -translate-y-1/2 blur-2xl opacity-40"></div>
-      </div>
-
-      <Logo />
-
-      <div
-        className="relative z-10 mx-auto w-full max-w-md 
-                   bg-zinc-900/70 backdrop-blur-md 
-                   rounded-2xl p-10 border border-zinc-800/70 
-                   shadow-[0_8px_32px_rgba(0,0,0,0.5)]"
+      {/* Left Section with Illustration */}
+      <motion.div
+        className="hidden md:flex flex-col justify-start w-1/2 relative overflow-hidden pt-3 px-10"
+        initial={{ x: -100, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ duration: 1, ease: "easeOut" }}
       >
-        <h2 className="text-center text-4xl font-bold bg-gradient-to-r from-[#A855F7] to-[#7E22CE] bg-clip-text text-transparent">
-          Welcome Back
-        </h2>
-        <p className="mt-2 text-center text-base text-zinc-400">
-          Don’t have an account?{" "}
-          <Link
-            to="/register"
-            className="text-purple-400 hover:underline font-medium"
-          >
-            Sign Up
-          </Link>
-        </p>
-
-        <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-5">
-          <Input
-            label="Email"
-            type="email"
-            placeholder="Enter your email"
-            {...register("email", {
-              required: "Email is required",
-              pattern: {
-                value: /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
-                message: "Invalid email address",
-              },
-            })}
-          />
-          {errors.email && (
-            <p className="text-red-500 text-sm">{errors.email.message}</p>
-          )}
-
-          <Input
-            label="Password"
-            type="password"
-            placeholder="Enter your password"
-            {...register("password", { required: "Password is required" })}
-          />
-          {errors.password && (
-            <p className="text-red-500 text-sm">{errors.password.message}</p>
-          )}
-
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-
-          <Button type="submit">Login</Button>
-        </form>
-      </div>
-    </div>
+        <img
+          src="src/assets/cozy-room-login.png"
+          alt="Cozy workspace"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        <div className="absolute inset-0"></div>
+        <div className="relative z-10 mt-6 drop-shadow-[0_4px_16px_rgba(0,0,0,0.5)]">
+          <h2 className="text-4xl font-bold text-white leading-snug">
+            Ready to level up?
+          </h2>
+          <p className="text-lg text-white/90 tracking-wide">
+            Sign in and continue the journey!
+          </p>
+        </div>
+      </motion.div>
+      {/* Right Section (Form) */}
+      <motion.div
+        className="flex flex-1 justify-center items-center bg-[#0b0b0f]"
+        initial={{ x: 100, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ duration: 1, ease: "easeOut" }}
+      >
+        <motion.div
+          className="w-full max-w-md p-10 rounded-2xl"
+          style={{
+            backgroundColor: "#101014",
+            border: "1px solid rgba(255,255,255,0.05)",
+            boxShadow:
+              "0 8px 40px rgba(0,0,0,0.6), 0 0 10px rgba(139,92,246,0.08)"
+          }}
+          whileHover={{ scale: 1.01 }}
+          transition={{ type: "spring", stiffness: 120 }}
+        >
+          <h2 className="text-center text-3xl font-extrabold mb-6 text-white">
+            Login
+          </h2>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            <div>
+              <label className="block text-zinc-300 mb-2">Email</label>
+              <input
+                {...register("email", { required: "Email is required" })}
+                type="email"
+                placeholder="Enter your email"
+                className="w-full rounded-lg px-4 py-3 bg-[#0f0f10] text-zinc-100 border border-zinc-800 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/60 transition"
+              />
+              {errors.email && (
+                <p className="text-sm mt-2 text-rose-500">
+                  {errors.email.message}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-zinc-300 mb-2">Password</label>
+              <input
+                {...register("password", { required: "Password is required" })}
+                type="password"
+                placeholder="Enter your password"
+                className="w-full rounded-lg px-4 py-3 bg-[#0f0f10] text-zinc-100 border border-zinc-800 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/60 transition"
+              />
+              {errors.password && (
+                <p className="text-sm mt-2 text-rose-500">
+                  {errors.password.message}
+                </p>
+              )}
+            </div>
+            {error && (
+              <motion.p
+                className="text-rose-500 text-sm text-center"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
+                {error}
+              </motion.p>
+            )}
+            <motion.button
+              type="submit"
+              className="w-full mt-3 py-3 rounded-lg text-white font-semibold"
+              style={{
+                background:
+                  "linear-gradient(90deg, #6D28D9 0%, #7E22CE 50%, #8B5CF6 100%)",
+                boxShadow: "0 10px 28px rgba(139,92,246,0.25)",
+              }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 200 }}
+            >
+              Login
+            </motion.button>
+          </form>
+          <p className="text-center text-sm text-zinc-400 mt-6">
+            Don’t have an account?{" "}
+            <Link
+              to="/register"
+              className="text-[#A78BFA] font-medium hover:underline"
+            >
+              Sign Up
+            </Link>
+          </p>
+        </motion.div>
+      </motion.div>
+    </motion.div>
   );
 };
 

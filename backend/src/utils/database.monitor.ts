@@ -17,10 +17,9 @@ export class DatabaseMonitor {
         const [
             totalActivities,
             activitesLast24h,
+            activitiesLastWeek,
             totalSessions,
             activeSessions,
-            activitiesLastWeek,
-
         ] = await Promise.all([
             Activity.countDocuments(),
             Activity.countDocuments({timestamp: {$gte: oneDayAgo}}),

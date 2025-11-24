@@ -3,7 +3,7 @@ import { Home, Brain, BarChart2, Trophy, Settings, Activity } from "lucide-react
 
 export default function Sidebar() {
   const links = [
-    { name: "Dashboard", icon: Home, to: "/" },
+    { name: "Dashboard", icon: Home, to: "/dashboard" },
     { name: "Focus Mode", icon: Activity, to: "/focus-mode" },
     { name: "Recommendations", icon: Brain, to: "/recommendations" },
     { name: "Analytics", icon: BarChart2, to: "/analytics" },

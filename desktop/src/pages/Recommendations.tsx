@@ -1,81 +1,101 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   RefreshCcw,
   AlertCircle,
   CheckCircle,
-  ChevronDown,
-  ChevronUp,
-  Clock,
   Tag,
+  Clock,
   Trash2,
   Check,
   Lightbulb,
 } from "lucide-react";
+import axios from "axios";
+import { BACKEND_URL } from "./config";
 
 type Recommendation = {
-  id: number;
-  title: string;
-  description: string;
-  type: "positive" | "warning";
-  category: string;
-  time: string;
+  _id: string;
+  recommendation: string;
+  type: "focus" | "break" | string;
+  context: {
+    distractions: string[];
+    recentActivity: string;
+    focusScore: number;
+    sessionDuration?: number;
+  };
+  timestamp: string;
+  priority: "low" | "medium" | "high";
+  completed?: boolean;
 };
+
+const API_BASE = BACKEND_URL + "/recommendations";
 
 const Recommendations: React.FC = () => {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock backend fetch
-  useEffect(() => {
+  // Utility to get JWT from localStorage
+  const getJwtToken = () => localStorage.getItem("token") || "";
+
+  // Fetch latest active recommendations from backend
+  const fetchRecommendations = useCallback(async () => {
     setLoading(true);
-    setTimeout(() => {
-      setRecommendations([
-        {
-          id: 1,
-          title: "Take a short 5-minute walk 🌿",
-          description:
-            "A quick walk helps refresh your mind and reduce eye strain after long sessions.",
-          type: "positive",
-          category: "Health",
-          time: "2 mins ago",
-        },
-        {
-          id: 2,
-          title: "Too many distractions detected ⚠️",
-          description:
-            "You’ve been switching apps frequently. Try enabling Focus Mode or muting notifications.",
-          type: "warning",
-          category: "Focus",
-          time: "5 mins ago",
-        },
-        {
-          id: 3,
-          title: "Your focus consistency improved by 12% 🎯",
-          description:
-            "Impressive! Keep up your current pace and maintain the same working rhythm.",
-          type: "positive",
-          category: "Productivity",
-          time: "10 mins ago",
-        },
-      ]);
+    setError(null);
+    try {
+      const jwt = getJwtToken();
+      const res = await axios.get(`${API_BASE}/history`, {
+        headers: { Authorization: `Bearer ${jwt}` },
+      });
+      console.log(res.data.history);
+      if (res.data?.history) {
+        setRecommendations(res.data.history);
+      } else {
+        setRecommendations([]);
+      }
+    } catch (err: any) {
+      console.error("Failed to fetch recommendations", err);
+      setRecommendations([]);
+      setError("Failed to load recommendations.");
+    } finally {
       setLoading(false);
-    }, 1200);
+    }
   }, []);
 
-  const toggleExpand = (id: number) => {
+  useEffect(() => {
+    fetchRecommendations();
+
+    // Optional: Poll every 60 seconds for fresh recommendations
+    const intervalId = setInterval(fetchRecommendations, 60000);
+
+    return () => clearInterval(intervalId);
+  }, [fetchRecommendations]);
+
+  // Toggle expand/collapse recommendation description
+  const toggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id);
   };
 
-  const handleRemove = (id: number) => {
-    setRecommendations((prev) => prev.filter((r) => r.id !== id));
+  // Remove recommendation from list (frontend only)
+  const handleRemove = (id: string) => {
+    setRecommendations((prev) => prev.filter((r) => r._id !== id));
   };
 
-  const handleComplete = (id: number) => {
+  // Mark recommendation as completed (frontend only)
+  const handleComplete = (id: string) => {
     setRecommendations((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, completed: true } : r))
+      prev.map((r) => (r._id === id ? { ...r, completed: true } : r))
     );
+  };
+
+  // Format timestamp nicely
+  const formatTime = (ts: string) => {
+    try {
+      return new Date(ts).toLocaleString();
+    } catch {
+      return "";
+    }
   };
 
   return (
@@ -89,10 +109,17 @@ const Recommendations: React.FC = () => {
           <p className="text-gray-600 dark:text-gray-400 mt-1">
             Personalized suggestions to improve your focus and productivity.
           </p>
+          {error && (
+            <p className="text-red-500 text-sm mt-2">
+              {error}
+            </p>
+          )}
         </div>
         <button
-          onClick={() => window.location.reload()}
+          onClick={fetchRecommendations}
           className="flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-600 to-purple-400 text-white font-medium hover:opacity-90 transition"
+          title="Refresh recommendations"
+          disabled={loading}
         >
           <RefreshCcw className="w-4 h-4" />
           Refresh
@@ -101,7 +128,6 @@ const Recommendations: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-1 px-10 py-8">
-        {/* Section Title */}
         <div className="flex items-center gap-3 mb-6">
           <Lightbulb className="w-6 h-6 text-purple-500" />
           <h2 className="text-2xl font-semibold">Active Suggestions</h2>
@@ -124,34 +150,37 @@ const Recommendations: React.FC = () => {
             <AnimatePresence>
               {recommendations.map((rec) => (
                 <motion.div
-                  key={rec.id}
+                  key={rec._id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
                   transition={{ duration: 0.4, ease: "easeOut" }}
                   className={`relative rounded-2xl p-6 border transition-all duration-300 cursor-pointer ${
-                    rec.type === "positive"
+                    rec.type === "focus"
                       ? "bg-white dark:bg-[#121214] border-purple-200 dark:border-white/10 hover:shadow-[0_8px_30px_rgba(168,85,247,0.15)]"
                       : "bg-white dark:bg-[#1a1a1d] border-red-200 dark:border-red-500/20 hover:shadow-[0_8px_30px_rgba(239,68,68,0.15)]"
                   }`}
-                  onClick={() => toggleExpand(rec.id)}
+                  onClick={() => toggleExpand(rec._id)}
                 >
-                  {/* Top Row */}
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      {rec.type === "positive" ? (
+                      {rec.type === "focus" ? (
                         <CheckCircle className="w-5 h-5 text-green-400" />
                       ) : (
                         <AlertCircle className="w-5 h-5 text-red-400" />
                       )}
-                      <h2 className="font-semibold text-lg">{rec.title}</h2>
+                      <h2 className="font-semibold text-lg">
+                        {rec.recommendation.length > 40
+                          ? rec.recommendation.slice(0, 40) + "..."
+                          : rec.recommendation}
+                      </h2>
                     </div>
 
                     <div className="flex items-center gap-2 text-gray-400">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleComplete(rec.id);
+                          handleComplete(rec._id);
                         }}
                         className="hover:text-green-500 transition"
                         title="Mark Complete"
@@ -161,7 +190,7 @@ const Recommendations: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleRemove(rec.id);
+                          handleRemove(rec._id);
                         }}
                         className="hover:text-red-500 transition"
                         title="Remove"
@@ -171,21 +200,19 @@ const Recommendations: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Sub Info Row */}
                   <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 mb-3">
                     <div className="flex items-center gap-1">
                       <Tag className="w-4 h-4" />
-                      {rec.category}
+                      {rec.type.charAt(0).toUpperCase() + rec.type.slice(1)}
                     </div>
                     <div className="flex items-center gap-1">
                       <Clock className="w-4 h-4" />
-                      {rec.time}
+                      {formatTime(rec.timestamp)}
                     </div>
                   </div>
 
-                  {/* Expandable Description */}
                   <AnimatePresence>
-                    {expandedId === rec.id && (
+                    {expandedId === rec._id && (
                       <motion.div
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
@@ -193,7 +220,7 @@ const Recommendations: React.FC = () => {
                         transition={{ duration: 0.4 }}
                         className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
                       >
-                        {rec.description}
+                        {rec.recommendation}
                       </motion.div>
                     )}
                   </AnimatePresence>

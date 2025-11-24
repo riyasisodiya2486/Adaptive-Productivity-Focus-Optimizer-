@@ -6,7 +6,7 @@ interface IRecommendation {
     timestamp: Date;
     prompt: string;
     recommendation: string;
-    type: 'break' | 'focus' | 'app-switch' | 'schedule' | 'environment';
+    type: 'break' | 'work' | 'study';
     priority: 'low' | 'medium'| 'high';
     context: {
         focusScore: number;
@@ -45,8 +45,8 @@ const recommendationSchema: mongoose.Schema<IRecommendation> = new mongoose.Sche
     },
     type: {
         type: String,
-        enum: ['break', 'focus', 'app-switch', 'schedule', 'environment'],
-        default: 'focus'
+        enum: ['break', 'work', 'study'],
+        default: 'work'
     },
     priority: {
         type: String, 

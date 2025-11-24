@@ -17,7 +17,7 @@ export const connectDB = async () =>{
         await DatabaseMonitor.logMetrics();
 
         // resume focus monitoring
-        await FocusMonitor.resumeAllActiveSessions(5);
+        await FocusMonitor.resumeAllActiveSession(5);
     }catch(err){
         console.log(err)
     }

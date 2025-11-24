@@ -23,7 +23,7 @@ export default function Layout() {
   }, [dark]);
 
   const links = [
-    { to: "/", label: "Dashboard", icon: <Home size={18}/> },
+    { to: "/dashboard", label: "Dashboard", icon: <Home size={18}/> },
     { to: "/focus", label: "Focus Mode", icon: <Activity size={18}/> },
     { to: "/recommendations", label: "Recommendations", icon: <Lightbulb size={18}/> },
     { to: "/analytics", label: "Analytics", icon: <BarChart3 size={18}/> },

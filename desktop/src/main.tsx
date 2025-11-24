@@ -10,7 +10,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
       <ThemeProvider>
-        <DashboardProvider>  {/* ✅ wrap here */}
+        <DashboardProvider>  
           <App />
         </DashboardProvider>
       </ThemeProvider>
