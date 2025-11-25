@@ -4,11 +4,16 @@ interface IBadge {
     badgeId: string;
     name: string;
     tier: 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond';
-    category: 'focus' | 'streak' | 'productivity' | 'mastery' | 'special';
+    category: 'focus' | 'streak' | 'productivity' | 'mastery' | 'social' | 'time' | 'special'; 
     description: string;
     icon: string;
     xpReward: number;
     unlockedAt: Date;
+    image: string; 
+    unlockRequirement?: {
+        type: 'totalSessions' | 'totalFocusTime' | 'bestFocusScore' | 'longestStreak' | 'perfectDays' | 'level';
+        value: number;
+    };
 }
 
 interface IAchievement {
@@ -107,13 +112,18 @@ const badgeSchema = new mongoose.Schema({
     },
     category: {
         type: String,
-        enum: ['focus', 'streak', 'productivity', 'mastery', 'special'],
+        enum: ['focus', 'streak', 'productivity', 'mastery', 'special', 'time', 'special'],
         required: true
     },
     description: { type: String, required: true },
     icon: { type: String, required: true },
     xpReward: { type: Number, required: true },
-    unlockedAt: { type: Date, required: true }
+    unlockedAt: { type: Date, required: true },
+    image: { type: String, required: true },
+    unlockRequirement: { 
+        type: { type: String }, 
+        value: { type: Number } 
+    }
 });
 
 const achievementSchema = new mongoose.Schema({

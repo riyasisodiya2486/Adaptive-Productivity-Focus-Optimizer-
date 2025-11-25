@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticateToken } from "../middleware/auth.middleware";
-import { deleteSession, endBreak, endSession, getCurrentSession, getSession, getSessions, getSessionStats, getUserStats, pauseSession, resumeSession, startBreak, startSession, updateFocusScore, updateSession } from "../controllers/session.controller";
+import { deleteSession, endBreak, endSession, getCurrentSession, getSession, getSessions, getSessionStats, getUserStats, lastSession, pauseSession, resumeSession, startBreak, startSession, updateFocusScore, updateSession } from "../controllers/session.controller";
 
 const router = Router();
 
@@ -10,12 +10,12 @@ router.use(authenticateToken);
 router.post('/start', startSession);
 router.get('/current', getCurrentSession);
 router.get('/', getSessions);
+router.get('/last', lastSession)
 router.get('/:id', getSession);
 router.put('/:id', updateSession);
 router.delete('/:id', deleteSession);
 router.post('/:id/break/start', startBreak);
 router.post('/:id/break/end', endBreak);
-
 
 //session controls
 router.put('/:id/end', endSession);

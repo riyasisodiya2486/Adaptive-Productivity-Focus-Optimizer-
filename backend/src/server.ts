@@ -21,7 +21,7 @@ app.use('/api/v1/user', userRouter);
 app.use("/api/v1/activities", activityRouter);
 app.use("/api/v1/session", sessionRouter);
 app.use("/api/v1/gamification", gamificationRouter);
-app.use("/api/v1/analysis", analyticsRouter);
+app.use("/api/v1/analytics", analyticsRouter);
 app.use("/api/v1/recommendations", recommendationRouter);
 
 const server = http.createServer(app);

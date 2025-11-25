@@ -9,15 +9,36 @@ if (!HUGGINGFACE_API_KEY) {
     throw new Error("HF_API_TOKEN environment variable is not set");
 }
 
+function cleanAndTrimTip(text: string): string {
+    if (!text) return "";
+    // Remove <think> blocks and explanation
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    // Remove meta lines/extra context
+    text = text.replace(/Based on.*?try this:/gi, '');
+    // Take only the first quote-delimited string, or first sentence if not quoted
+    let m = text.match(/["“”]([^"“”]{8,})["“”]/);
+    if (m) text = m[1];
+    // Remove markdown, asterisks, emojis, etc.
+    text = text.replace(/\*\*/g, '').replace(/[✨🎯💡⚡🔥🚀💪🌟⭐]+/g, '');
+    text = text.replace(/[`'“”‘’]/g, '').trim();
+    // Only first sentence, max 160 chars, fallback if too short
+    text = text.split(".")[0].trim() + ".";
+    if (text.length > 160) text = text.slice(0, 157) + '...';
+    if (!text || text.split(' ').length < 3) text = "Take 2 minutes for a single focused task, even if distracted, to build momentum.";
+    return text;
+}
+
 export async function generateAdaptiveRecommendation(
     userId: string,
     session: any,
     lastRecommendation: string = ""
-): Promise<string> {
+): Promise<{
+    recommendation: string,
+    context: { focusScore: number, distractions: boolean | string[], [key: string]: any }
+}> {
     try {
         const now = new Date();
         const sessionStart = new Date(session.startTime);
-        const minutesSinceStart = Math.floor((now.getTime() - sessionStart.getTime()) / 60000);
         const focusData = session.focusTimeline.slice(-3);
         const avgFocus = session.statistics?.averageFocusScore || 0;
         const lastReasons = focusData.flatMap((entry: any) => entry.distractionDetected ? [entry.distractionDetected] : []);
@@ -26,23 +47,22 @@ export async function generateAdaptiveRecommendation(
         const lastAdvice = lastRecs.slice(-1)[0] || "none";
 
         const contextSummary = `
-                                Session start: ${sessionStart.toLocaleTimeString()} (${minutesSinceStart} min ago)
-                                Current site/app(s): ${recentApps.join(", ") || "unknown"}
-                                Average focus score: ${avgFocus}%
-                                Recent distractions: ${lastReasons.join(", ") || "none"}
-                                Last advice: "${lastAdvice}"
-                                Current mode: ${session.category || "general"}
-                                Provide a new, timely tip or suggestion (1 sentence), different from previous advice, customized for this context.
-                                `.trim();
+Session start: ${sessionStart.toLocaleTimeString()}
+Current site/app(s): ${recentApps.join(", ") || "unknown"}
+Average focus score: ${avgFocus}%
+Recent distractions: ${lastReasons.join(", ") || "none"}
+Last advice: "${lastAdvice}"
+Current mode: ${session.category || "general"}
+`.trim();
 
         const messages = [
             {
                 role: "system",
-                content: "You are a productivity coach generating personalized, evolving suggestions with each prompt."
+                content: "You are a productivity coach. Only output a SINGLE direct, actionable tip for the user, no explanation, no meta-comments. Exactly one sentence, plain text, under 30 words, nothing else."
             },
             {
                 role: "user",
-                content: contextSummary
+                content: `Here is my focus context:\n${contextSummary}\n\nTip:`
             }
         ];
 
@@ -60,13 +80,17 @@ export async function generateAdaptiveRecommendation(
             }
         );
         
-        const suggestion = response.data?.choices?.[0]?.message?.content?.trim() || "Take a short break and refocus your mind.";
+        let suggestion = response.data?.choices?.[0]?.message?.content?.trim() || "";
+        suggestion = cleanAndTrimTip(suggestion);
 
         const priority: 'low'| 'medium' | 'high'= 
-         avgFocus < 30 ? 'high': avgFocus < 50 ? 'medium' : 'low';
+            avgFocus < 30 ? 'high': avgFocus < 50 ? 'medium' : 'low';
 
         const type: 'break' | 'work' | 'study' = 
             session.type === "break" ? "break" : "work";   
+
+        // For context: if any distractions found, flag as true
+        const hadDistractions = lastReasons.length > 0;
 
         const newRec = new Recommendation({
             userId,
@@ -85,14 +109,23 @@ export async function generateAdaptiveRecommendation(
         });
         await newRec.save();
 
-        // link recommendation to session refrence array and save session
         if (!Array.isArray(session.recommendations)) session.recommendations = [];
             session.recommendations.push(newRec._id);
         await session.save();
 
-        return suggestion;
+        // Return BOTH the tip and minimal context!
+        return {
+            recommendation: suggestion,
+            context: {
+                focusScore: avgFocus,
+                distractions: hadDistractions,
+            }
+        };
     } catch (err) {
         console.error("[Recommender] Error generating adaptive recommendation:", err);
-        return "Take a short break and refocus your mind.";
+        return {
+            recommendation: "Take 2 minutes for a single focused task, even if distracted, to build momentum.",
+            context: { focusScore: session?.statistics?.averageFocusScore || 0, distractions: false }
+        };
     }
 }

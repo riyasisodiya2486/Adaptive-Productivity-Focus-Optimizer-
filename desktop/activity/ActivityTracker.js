@@ -19,10 +19,11 @@ class ActivityTracker {
         this.state = 'stopped';
         this.lastBrowserActivity = null;
 
-        console.log('[ActivityTracker] Initializing with config:', {
+        console.log('[ActivityTracker] 🔧 Initializing:', {
             userId: config.userId,
             sessionId: config.sessionId,
-            updateInterval: this.config.updateInterval
+            updateInterval: this.config.updateInterval,
+            backendUrl: config.backendUrl
         });
 
         this.hardwareTracker = new HardwareTracker();
@@ -33,33 +34,43 @@ class ActivityTracker {
         if (this.config.browserExtensionId) {
             this.setupExtensionBridge(this.config.browserExtensionId);
         }
+        
+        console.log('[ActivityTracker] ✅ Initialized');
     }
 
     setupExtensionBridge(extensionId) {
-        this.extensionBridge = new BrowserExtensionBridge(extensionId);
-        this.extensionBridge.on('browser-activity', (tabData) => {
-            this.lastBrowserActivity = tabData;
-            console.log('[ActivityTracker] Received browser activity from extension:', tabData.domain);
-        });
-        console.log('[ActivityTracker] Browser extension bridge initialized');
+        try {
+            this.extensionBridge = new BrowserExtensionBridge(extensionId);
+            this.extensionBridge.on('browser-activity', (tabData) => {
+                this.lastBrowserActivity = tabData;
+                console.log('[ActivityTracker] 🌐 Browser activity:', tabData.domain);
+            });
+            console.log('[ActivityTracker] 🔌 Extension bridge initialized');
+        } catch (error) {
+            console.error('[ActivityTracker] ❌ Extension bridge failed:', error);
+        }
     }
 
     start() {
         if (this.state === 'running') {
-            console.warn('[ActivityTracker] Already running');
+            console.warn('[ActivityTracker] ⚠️ Already running');
             return;
         }
 
-        console.log('[ActivityTracker] Starting session:', this.config.sessionId);
+        console.log('[ActivityTracker] 🚀 Starting session:', this.config.sessionId);
         this.state = 'running';
         this.hardwareTracker.start();
 
         if (this.extensionBridge) {
-            this.extensionBridge.startTracking(
-                this.config.sessionId,
-                this.config.userId,
-                this.config.authToken
-            );
+            try {
+                this.extensionBridge.startTracking(
+                    this.config.sessionId,
+                    this.config.userId,
+                    this.config.authToken
+                );
+            } catch (error) {
+                console.error('[ActivityTracker] ❌ Extension start failed:', error);
+            }
         }
 
         if (this.tickTimer) clearInterval(this.tickTimer);
@@ -71,50 +82,73 @@ class ActivityTracker {
         }, this.config.updateInterval);
 
         this.collectAndQueueActivity();
-        console.log('[ActivityTracker] Periodic collection started');
+        console.log('[ActivityTracker] ⏰ Periodic collection started');
     }
 
     pause() {
         if (this.state !== 'running') {
-            console.warn('[ActivityTracker] Not running, cannot pause');
+            console.warn('[ActivityTracker] ⚠️ Not running');
             return;
         }
 
-        console.log('[ActivityTracker] Pausing session');
-        this.state = 'paused';
+        console.log('[ActivityTracker] ⏸️ Pausing...');
         this.collectAndQueueActivity();
+        this.state = 'paused';
         this.hardwareTracker.stop();
-        if (this.extensionBridge) this.extensionBridge.pauseTracking();
+        
+        if (this.extensionBridge) {
+            try {
+                this.extensionBridge.pauseTracking();
+            } catch (error) {
+                console.error('[ActivityTracker] ❌ Extension pause failed:', error);
+            }
+        }
 
         this.dataAggregator.pause();
+        console.log('[ActivityTracker] ✅ Paused');
     }
 
     resume() {
         if (this.state !== 'paused') {
-            console.warn('[ActivityTracker] Not paused, cannot resume');
+            console.warn('[ActivityTracker] ⚠️ Not paused');
             return;
         }
 
-        console.log('[ActivityTracker] Resuming session');
+        console.log('[ActivityTracker] ▶️ Resuming...');
         this.state = 'running';
         this.hardwareTracker.start();
-        if (this.extensionBridge) this.extensionBridge.resumeTracking();
+        
+        if (this.extensionBridge) {
+            try {
+                this.extensionBridge.resumeTracking();
+            } catch (error) {
+                console.error('[ActivityTracker] ❌ Extension resume failed:', error);
+            }
+        }
         
         this.dataAggregator.resume();
         this.collectAndQueueActivity();
+        console.log('[ActivityTracker] ✅ Resumed');
     }
 
     stop() {
         if (this.state === 'stopped') {
-            console.warn('[ActivityTracker] Already stopped');
+            console.warn('[ActivityTracker] ⚠️ Already stopped');
             return;
         }
 
-        console.log('[ActivityTracker] Stopping session');
+        console.log('[ActivityTracker] ⏹️ Stopping...');
         this.collectAndQueueActivity();
         this.state = 'stopped';
         this.hardwareTracker.stop();
-        if (this.extensionBridge) this.extensionBridge.stopTracking();
+        
+        if (this.extensionBridge) {
+            try {
+                this.extensionBridge.stopTracking();
+            } catch (error) {
+                console.error('[ActivityTracker] ❌ Extension stop failed:', error);
+            }
+        }
 
         if (this.tickTimer) {
             clearInterval(this.tickTimer);
@@ -125,18 +159,29 @@ class ActivityTracker {
             this.dataAggregator.flushAndClose();
         }
         this.dataAggregator.disconnect();
+        console.log('[ActivityTracker] ✅ Stopped');
     }
 
     endSession() {
         if (this.state === 'ended') {
-            console.warn('[ActivityTracker] Already ended');
+            console.warn('[ActivityTracker] ⚠️ Already ended');
             return;
         }
-        console.log('[ActivityTracker] Ending session');
+        
+        console.log('[ActivityTracker] 🏁 Ending...');
         this.collectAndQueueActivity();
         this.state = 'ended';
-        if (this.extensionBridge) this.extensionBridge.endSession();
+        
+        if (this.extensionBridge) {
+            try {
+                this.extensionBridge.endSession();
+            } catch (error) {
+                console.error('[ActivityTracker] ❌ Extension end failed:', error);
+            }
+        }
+        
         this.stop();
+        console.log('[ActivityTracker] ✅ Ended');
     }
 
     getState() {
@@ -148,7 +193,7 @@ class ActivityTracker {
             const data = this.hardwareTracker.getActivityData();
             return data || { keystrokes: 0, mouseClicks: 0, mouseMoves: 0, scrolls: 0, idleTime: 0 };
         } catch (error) {
-            console.error('[ActivityTracker] Error in getDelta:', error);
+            console.error('[ActivityTracker] ❌ getDelta error:', error);
             return { keystrokes: 0, mouseClicks: 0, mouseMoves: 0, scrolls: 0, idleTime: 0 };
         }
     }
@@ -181,7 +226,7 @@ class ActivityTracker {
                 }
             };
         } catch (error) {
-            console.error('[ActivityTracker] Error in getContext:', error);
+            console.error('[ActivityTracker] ❌ getContext error:', error);
             return {
                 activeApp: { name: 'N/A', title: 'N/A', category: 'neutral' },
                 browserActivity: null,
@@ -192,6 +237,8 @@ class ActivityTracker {
 
     async collectAndQueueActivity() {
         try {
+            console.log('[ActivityTracker] 📊 Collecting...');
+            
             const hardwareData = this.hardwareTracker.getActivityData();
             const activeApp = await this.windowTracker.getActiveApp();
 
@@ -226,20 +273,39 @@ class ActivityTracker {
                 distractionDetected: distractions
             };
 
+            console.log('[ActivityTracker] ✅ Queuing:', {
+                keystrokes: payload.activityData.keystrokes,
+                clicks: payload.activityData.mouseClicks,
+                distractions: distractions.length
+            });
+
             this.dataAggregator.addActivity(payload);
             this.hardwareTracker.resetActivityData();
             this.lastBrowserActivity = null;
 
         } catch (error) {
-            console.error('[ActivityTracker] Error collecting/sending activity:', error);
+            console.error('[ActivityTracker] ❌ Collection error:', error);
         }
     }
 
     categorizeDomain(domain) {
-        const productiveDomains = ['github.com', 'stackoverflow.com', 'developer.mozilla.org', 'docs.python.org', 'nodejs.org'];
-        const distractionDomains = ['youtube.com', 'facebook.com', 'twitter.com', 'instagram.com', 'reddit.com', 'tiktok.com'];
-        if (productiveDomains.some(d => domain.includes(d))) return 'productive';
-        if (distractionDomains.some(d => domain.includes(d))) return 'distraction';
+        if (!domain) return 'neutral';
+        
+        const productiveDomains = [
+            'github.com', 'stackoverflow.com', 'developer.mozilla.org', 
+            'docs.python.org', 'nodejs.org'
+        ];
+        
+        const distractionDomains = [
+            'youtube.com', 'facebook.com', 'twitter.com', 'x.com',
+            'instagram.com', 'reddit.com', 'tiktok.com'
+        ];
+        
+        const lower = domain.toLowerCase();
+        
+        if (productiveDomains.some(d => lower.includes(d))) return 'productive';
+        if (distractionDomains.some(d => lower.includes(d))) return 'distraction';
+        
         return 'neutral';
     }
 

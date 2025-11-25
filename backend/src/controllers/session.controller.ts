@@ -4,6 +4,7 @@ import { Session } from "../models/session.model";
 import  "../models/recommendations.model";
 import { FocusMonitor } from "../services/focusMonitor.service";
 import { FocusCalculator } from "../services/focusCalculator.service";
+import { Activity } from "../models/activity.model";
 
 
 export const startSession = async( req:Request, res:Response) =>{
@@ -496,4 +497,31 @@ export const getUserStats = async (req:Request, res:Response) => {
             msg: "Server error"
         });
     }
-}
+};
+
+export const lastSession = async (req:Request, res:Response) => {
+  try {
+    const userId = (req as any).userId;
+    
+    // Find most recent completed session
+    const lastSession = await Session.findOne({
+      userId,
+      endTime: { $ne: null }, 
+      status: 'ended'
+    })
+    .sort({ endTime: -1 })
+    .limit(1);
+
+    if (!lastSession) {
+      return res.status(404).json({ 
+        message: 'No previous session found' 
+      });
+    }
+
+    res.json({ session: lastSession });
+  } catch (error) {
+    console.error('Error fetching last session:', error);
+    res.status(500).json({ error: 'Failed to fetch last session' });
+  }
+};
+

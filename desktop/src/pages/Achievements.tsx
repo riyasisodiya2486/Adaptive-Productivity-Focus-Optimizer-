@@ -12,12 +12,17 @@ import {
   User,
   Clock,
   Gauge,
+  Book,
+  CheckCircle,
+  Feather,
+  Activity,
+  Users,
 } from "lucide-react";
-// Import Variants and Variant for proper TypeScript typing
-import { motion, Variants, Variant } from "framer-motion"; 
+
+import { motion, Variants, Variant } from "framer-motion";
 import { BACKEND_URL } from "./config";
 
-// --- Utility Functions & Interface Definitions (Unchanged) ---
+// --- Utility Functions & Interface Definitions (FIXED) ---
 
 const getJwtToken = (): string =>
   typeof window !== "undefined" && window.localStorage
@@ -42,6 +47,7 @@ interface GamificationStats {
   monthlyXp: number;
 }
 
+// FIX 1: Updated Badge Interface to include unlockRequirement and image
 interface Badge {
   badgeId: string;
   name: string;
@@ -55,6 +61,10 @@ interface Badge {
   tier: string;
   category: string;
   image: string;
+  unlockRequirement: {
+    type: 'totalSessions' | 'totalFocusTime' | 'bestFocusScore' | 'longestStreak' | 'perfectDays' | 'level';
+    value: number;
+  };
 }
 
 interface Achievement {
@@ -92,7 +102,7 @@ interface Milestone {
   };
 }
 
-// --- Framer Motion Variants (Type Casted) ---
+// --- Framer Motion Variants (Unchanged) ---
 
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
@@ -233,26 +243,21 @@ export default function Gamification() {
 
   const getIconComponent = (iconName: string) => {
     switch (iconName) {
-      case "zap":
-        return Zap;
-      case "trophy":
-        return Trophy;
-      case "star":
-        return Star;
-      case "calendar":
-        return CalendarCheck;
-      case "flame":
-        return Flame;
-      case "award":
-        return Award;
-      case "user":
-        return User;
-      case "clock":
-        return Clock;
-      case "gauge":
-        return Gauge;
-      default:
-        return Star;
+      case "zap": return Zap;
+      case "trophy": return Trophy;
+      case "star": return Star;
+      case "calendar": return CalendarCheck;
+      case "flame": return Flame;
+      case "award": return Award;
+      case "user": return User;
+      case "clock": return Clock;
+      case "gauge": return Gauge;
+      case "book": return Book;
+      case "check-circle": return CheckCircle;
+      case "feather": return Feather;
+      case "activity": return Activity;
+      case "users": return Users;
+      default: return Star;
     }
   };
 
@@ -288,7 +293,7 @@ export default function Gamification() {
         className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
         variants={itemVariants}
       >
-        {/* Level Card */}
+        {/* Level Card (Unchanged) */}
         <motion.div
           className="bg-gradient-to-br from-yellow-500 to-orange-500 rounded-3xl p-8 shadow-2xl text-white col-span-1 border-4 border-yellow-300/50 relative overflow-hidden"
           whileHover={{ scale: 1.05, rotate: 1 }}
@@ -320,7 +325,7 @@ export default function Gamification() {
           </div>
         </motion.div>
 
-        {/* Streak Card */}
+        {/* Streak Card (Unchanged) */}
         <motion.div
           className="bg-white dark:bg-[#121214] rounded-3xl p-8 border border-gray-200 dark:border-white/10 shadow-lg col-span-1"
           whileHover={cardHover}
@@ -339,7 +344,7 @@ export default function Gamification() {
           </p>
         </motion.div>
 
-        {/* Badges Progress */}
+        {/* Badges Progress (Unchanged) */}
         <motion.div
           className="bg-white dark:bg-[#121214] rounded-3xl p-8 border border-gray-200 dark:border-white/10 shadow-lg col-span-1"
           whileHover={cardHover}
@@ -361,7 +366,7 @@ export default function Gamification() {
           </div>
         </motion.div>
 
-        {/* Achievements Progress */}
+        {/* Achievements Progress (Unchanged) */}
         <motion.div
           className="bg-white dark:bg-[#121214] rounded-3xl p-8 border border-gray-200 dark:border-white/10 shadow-lg col-span-1"
           whileHover={cardHover}
@@ -386,7 +391,7 @@ export default function Gamification() {
         </motion.div>
       </motion.div>
 
-      {/* Stats Overview */}
+      {/* Stats Overview (Unchanged) */}
       <motion.div
         className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4"
         variants={itemVariants}
@@ -423,7 +428,7 @@ export default function Gamification() {
         />
       </motion.div>
 
-      {/* Daily/Weekly Challenges Section (NOW FIRST) */}
+      {/* Daily/Weekly Challenges Section (Unchanged) */}
       <motion.section className="space-y-6" variants={itemVariants}>
         <h2 className="text-3xl font-bold text-orange-500 border-b-2 border-orange-500/50 pb-2">
           ⚡ Daily Challenges
@@ -495,7 +500,7 @@ export default function Gamification() {
         </div>
       </motion.section>
       
-      {/* Badges Section (NOW SECOND) */}
+      {/* Badges Section */}
       <motion.section className="space-y-6" variants={itemVariants}>
         <h2 className="text-3xl font-bold text-green-500 border-b-2 border-green-500/50 pb-2">
           🏆 Badges Collection
@@ -511,7 +516,6 @@ export default function Gamification() {
               <motion.div
                 key={badge.badgeId}
                 className={`bg-white dark:bg-[#121214] rounded-2xl p-6 border border-gray-200 dark:border-white/10 shadow-lg cursor-pointer ${
-                  // Corrected: Only apply opacity and grayscale if NOT unlocked
                   !badge.unlocked ? "opacity-70 grayscale" : "opacity-100"
                 }`}
                 initial={{ opacity: 0, y: 50 }}
@@ -519,7 +523,7 @@ export default function Gamification() {
                 transition={{ duration: 0.6, delay: index * 0.05 }}
                 whileHover={badgeHover}
               >
-                {/* Badge Image/Icon */}
+                {/* Badge Image/Icon (Unchanged) */}
                 <motion.div className="flex items-center justify-center mb-4">
                   {badge.image ? (
                     <motion.img
@@ -567,11 +571,13 @@ export default function Gamification() {
                   requirement={badge.requirement}
                 />
 
+                {/* FIX 2: Pass unlockRequirement to the footer */}
                 <BadgeFooter
                   unlocked={badge.unlocked}
                   unlockedAt={badge.unlockedAt}
                   xpReward={badge.xpReward}
                   progressPercentage={progressPercentage}
+                  unlockRequirement={badge.unlockRequirement} // Pass the requirement
                 />
               </motion.div>
             );
@@ -579,8 +585,7 @@ export default function Gamification() {
         </div>
       </motion.section>
 
-
-      {/* Achievements Section */}
+      {/* Achievements Section (Unchanged) */}
       <motion.section className="space-y-6" variants={itemVariants}>
         <h2 className="text-3xl font-bold text-purple-500 border-b-2 border-purple-500/50 pb-2">
           🌟 Core Achievements
@@ -651,7 +656,7 @@ export default function Gamification() {
         </div>
       </motion.section>
 
-      {/* Milestones */}
+      {/* Milestones (Unchanged) */}
       <motion.section className="space-y-6" variants={itemVariants}>
         <h2 className="text-3xl font-bold text-blue-500 border-b-2 border-blue-500/50 pb-2">
           💎 Level Milestones
@@ -705,7 +710,7 @@ export default function Gamification() {
   );
 }
 
-// --- Helper Components (Unchanged) ---
+// --- Helper Components (UPDATED) ---
 
 const StatCard = ({
   label,
@@ -783,16 +788,66 @@ const ProgressBar = ({
   </>
 );
 
+// FIX 3: New component to map the unlock requirement to display text
+const UnlockRequirementDisplay = ({
+  type,
+  value,
+}: {
+  type: Badge["unlockRequirement"]["type"];
+  value: number;
+}) => {
+  let displayValue = value.toString();
+  let metric = "";
+
+  switch (type) {
+    case "totalSessions":
+      metric = "Total Sessions";
+      break;
+    case "totalFocusTime":
+      // Value is in minutes, convert to hours for display if large
+      if (value >= 60) {
+        displayValue = `${Math.floor(value / 60)} hours`;
+      } else {
+        displayValue = `${value} minutes`;
+      }
+      metric = "Focus Time";
+      break;
+    case "bestFocusScore":
+      metric = "Best Focus Score";
+      break;
+    case "longestStreak":
+      metric = "Longest Streak";
+      displayValue = `${value} days`;
+      break;
+    case "perfectDays":
+      metric = "Perfect Days (>90% Focus)";
+      break;
+    case "level":
+      metric = "Player Level";
+      break;
+    default:
+      metric = "Specific Requirement";
+  }
+
+  return (
+    <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 mt-2">
+      Unlock Requirement: **{displayValue}** {metric}
+    </p>
+  );
+};
+
+// FIX 4: Update BadgeFooter to use the new display component
 const BadgeFooter = ({
   unlocked,
   unlockedAt,
   xpReward,
-  progressPercentage,
+  unlockRequirement,
 }: {
   unlocked: boolean;
   unlockedAt?: Date;
   xpReward: number;
   progressPercentage: number;
+  unlockRequirement: Badge["unlockRequirement"]; // New prop
 }) => {
   if (unlocked) {
     return (
@@ -805,9 +860,14 @@ const BadgeFooter = ({
     );
   }
   return (
-    <p className="text-xs font-medium text-yellow-500 mt-2">
-      {progressPercentage >= 80 ? "Almost there!" : "In Progress"} • Reward: +
-      {xpReward} XP
-    </p>
+    <>
+      <UnlockRequirementDisplay
+        type={unlockRequirement.type}
+        value={unlockRequirement.value}
+      />
+      <p className="text-xs font-medium text-yellow-500 mt-1">
+        Reward: **+{xpReward} XP**
+      </p>
+    </>
   );
 };

@@ -1,42 +1,8 @@
+import mongoose from "mongoose";
 import { Request, Response } from "express"
 import { Activity } from "../models/activity.model";
 import { Session } from "../models/session.model";
 
-export const logActivity = async(req:Request, res:Response) => {
-    try{
-        const userId = (req as any).userId;
-        if(!req.body.sessionId){
-            return res.status(400).json({
-                msg: "sessionId is required"
-            });
-        }
-        const session = await Session.findOne({
-            _id: req.body.sessionId,
-            userId,
-            status: {$in: ['active', 'paused']}
-        });
-
-        if(!session){
-            return res.status(404).json({
-                msg: "Active or paused session not found" 
-            })
-        }
-        const activity = await Activity.create({
-            ...req.body,
-            userId,
-            timeStamp: req.body.timeStamp || new Date()
-        });
-
-        return res.json({
-            msg: "Activity logged successfully",
-            activity
-        });
-    }catch(err){
-        res.status(500).json({
-            msg: "Server error"
-        })
-    }
-};
 
 export const logActivityBatch = async(req: Request, res:Response) => {
     try{
@@ -93,40 +59,109 @@ export const logActivityBatch = async(req: Request, res:Response) => {
     }
 };
 
-export const getActivities = async(req:Request, res:Response) =>{
-    try{
+export const getActivities = async (req: Request, res: Response) => {
+    try {
         const userId = (req as any).userId;
-        const {sessionId, start, end, limit = 100, skip = 0} = req.query;
-        const match: any = {userId};
+        const { limit = 20, skip = 0, start, end } = req.query; // Capture start and end
 
-        if(sessionId) {
-            match.sessionId = sessionId;
+        const query: any = { 
+            userId: new mongoose.Types.ObjectId(userId) 
+        };
+
+        // --- 1. Implement Date Range Filtering ---
+        if (start || end) {
+            const dateFilter: any = {};
+            
+            // Validate and convert 'start' parameter
+            if (start) {
+                const startDate = new Date(start as string);
+                if (isNaN(startDate.getTime())) {
+                    return res.status(400).json({ msg: 'Invalid start date format.' });
+                }
+                // $gte means Greater Than or Equal To
+                dateFilter.$gte = startDate;
+            }
+
+            // Validate and convert 'end' parameter
+            if (end) {
+                const endDate = new Date(end as string);
+                if (isNaN(endDate.getTime())) {
+                    return res.status(400).json({ msg: 'Invalid end date format.' });
+                }
+                // $lte means Less Than or Equal To
+                dateFilter.$lte = endDate;
+            }
+
+            // Apply the timestamp filter to the main query
+            if (Object.keys(dateFilter).length > 0) {
+                // ASSUMPTION: Your Activity model has a 'timestamp' field
+                query.timestamp = dateFilter;
+            }
         }
+        // --- End Date Range Filtering ---
 
-        if(start || end){
-            match.timestamp = {};
-            if(start) match.timestamp.$gte = new Date(start as string);
-            if(end) match.timestamp.$lte = new Date(end as string);
-        }
-
-        const activities = await Activity.find(match)
-            .sort("-timestamp")
+        const activities = await Activity.find(query as any)
+            .sort({ timestamp: -1 }) // Sort by most recent first
             .limit(Number(limit))
             .skip(Number(skip));
 
-        const total = await Activity.countDocuments(match);
-        
+        const total = await Activity.countDocuments(query as any);
+
         return res.json({
-            total,
             activities,
+            total,
             limit: Number(limit),
             skip: Number(skip)
+        }); 
+    } catch (err) {
+        console.error("Error getting activities:", err);
+        return res.status(500).json({
+            msg: "Server error fetching activities"
         });
-    }catch(err){
-        res.status(500).json({
-            msg: "server error"
-        })
     }
+};
+
+export const getAppUsageForSession = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const { sessionId } = req.params;
+    if (!sessionId) {
+      return res.status(400).json({ msg: "Session ID is required" });
+    }
+
+    // Determine the logging interval (in seconds)
+    const samplingInterval = 5; 
+
+    // Get per-app usage for this session
+    const usage = await Activity.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(userId), sessionId: new mongoose.Types.ObjectId(sessionId) } },
+      { $sort: { timestamp: 1 } },
+      {
+        $group: {
+          _id: "$activeApp.name",
+          title: { $first: "$activeApp.title" },
+          category: { $first: "$activeApp.category" },
+          intervals: { $sum: 1 },
+        }
+      },
+      { $sort: { intervals: -1 } }
+    ]);
+
+    // Format response: time in seconds and minutes
+    const results = usage.map(u => ({
+      name: u._id,
+      title: u.title,
+      category: u.category,
+      intervals: u.intervals,
+      seconds: u.intervals * samplingInterval,
+      minutes: (u.intervals * samplingInterval) / 60,
+    }));
+
+    return res.json({ sessionId, appUsage: results });
+  } catch (err) {
+    console.error("Error computing app usage:", err);
+    return res.status(500).json({ msg: "server error" });
+  }
 };
 
 export const getActivity = async(req:Request, res:Response) => {
@@ -404,3 +439,43 @@ export const getActivityTimeline = async(req:Request, res:Response) =>{
     }
 }
 
+
+export const getActivityByDateRange = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).userId;
+        const { start, end } = req.query;
+
+        // 1. Validate and convert dates
+        if (!start || !end) {
+            return res.status(400).json({ msg: 'Start and end date query parameters are required.' });
+        }
+
+        const startDate = new Date(start as string);
+        const endDate = new Date(end as string);
+
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            return res.status(400).json({ msg: 'Invalid start or end date format.' });
+        }
+
+        // 2. Build the query
+        const query = {
+            userId: new mongoose.Types.ObjectId(userId),
+            // Assuming your Activity model has a 'timestamp' or 'date' field
+            timestamp: { 
+                $gte: startDate, 
+                $lte: endDate 
+            }
+        };
+
+        // 3. Fetch the data (adjust projections and sorting as needed)
+        const activities = await Activity.find(query)
+            .sort({ timestamp: 1 })
+            .select('-__v'); // Exclude the version field
+
+        return res.json({ activities });
+
+    } catch (error) {
+        console.error('Error fetching activity data by date range:', error);
+        return res.status(500).json({ msg: 'Server error fetching activity data.' });
+    }
+};
