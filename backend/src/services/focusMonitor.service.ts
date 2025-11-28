@@ -28,7 +28,11 @@ export class FocusMonitor {
                 }
 
                 // Calculate focus score for the last interval
-                const result = await FocusCalculator.calculateFocusScore(sessionId, session.userId?.toString() || "", intervalMinutes);
+                const result = await FocusCalculator.calculateFocusScore(
+                    sessionId, 
+                    session.userId?.toString() || "", 
+                    intervalMinutes
+                );
                 console.log(`[Focus Monitor] Session ${sessionId} - Focus: ${result.focusScore}% [${result.activityLevel}]`);
 
                 // Add to focus timeline
@@ -98,7 +102,7 @@ export class FocusMonitor {
         return this.intervals.has(sessionId);
     }
 
-    // Handle low focus situation — trigger Gemini recommendation & alerts
+    // Handle low focus situation — trigger recommendation & alerts
     private static async handleLowFocus(
         sessionId: string,
         focusResult: { focusScore: number; distractionReasons: string[] }
@@ -133,7 +137,7 @@ export class FocusMonitor {
 
             await session.save();
 
-            // --- 2. Generate adaptive recommendation from Gemini ---
+            // --- 2. Generate adaptive recommendation ---
             let lastRecommendation = "";
             if (Array.isArray((session as any).alerts) && (session as any).alerts.length > 0) {
                 lastRecommendation = ((session as any).alerts
@@ -141,18 +145,33 @@ export class FocusMonitor {
                     .slice(-1)[0]?.suggestion) || "";
             }
 
-            let suggestion =  "take a short break and refocus.";
-            try{
-                suggestion = await generateAdaptiveRecommendation(
+            let suggestion = "Take a short break and refocus.";
+            try {
+                // ✅ FIX: Handle the object return from generateAdaptiveRecommendation
+                const recResult = await generateAdaptiveRecommendation(
                     session.userId?.toString(),
                     session,
                     lastRecommendation
                 );
 
-                 console.log(`[Focus Monitor] Suggestion for session ${sessionId}: ${suggestion}`);
-            } catch(err){
+                // Check if result is an object with 'recommendation' property
+                if (typeof recResult === 'object' && recResult !== null && 'recommendation' in recResult) {
+                    suggestion = (recResult as any).recommendation;
+                    console.log(`[Focus Monitor] Recommendation context:`, {
+                        focusScore: (recResult as any).context?.focusScore,
+                        distractions: (recResult as any).context?.distractions
+                    });
+                } else if (typeof recResult === 'string') {
+                    // Fallback if it's already a string
+                    suggestion = recResult;
+                }
 
+                console.log(`[Focus Monitor] Suggestion for session ${sessionId}: ${suggestion}`);
+            } catch(err) {
+                console.error(`[Focus Monitor] Error generating recommendation:`, err);
+                suggestion = "Take a short break and refocus.";
             }
+
             // --- 3. Emit WebSocket event to the user ---
             try {
                 if ((globalThis as any).io && session.userId) {

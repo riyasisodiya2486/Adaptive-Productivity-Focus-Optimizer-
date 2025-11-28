@@ -9,9 +9,12 @@ import {
   Trash2,
   Check,
   Lightbulb,
+  Bell,
+  X,
 } from "lucide-react";
 import axios from "axios";
 import { BACKEND_URL } from "./config";
+
 
 type Recommendation = {
   _id: string;
@@ -26,44 +29,232 @@ type Recommendation = {
   timestamp: string;
   priority: "low" | "medium" | "high";
   completed?: boolean;
+  isNew?: boolean; // Track if recommendation is new
+};
+
+type Toast = {
+  id: string;
+  message: string;
+  type: "success" | "info" | "warning" | "error";
+  recommendation?: Recommendation;
 };
 
 const API_BASE = BACKEND_URL + "/recommendations";
+
+// ✅ Toast Notification Component
+const ToastNotification: React.FC<{
+  toast: Toast;
+  onDismiss: (id: string) => void;
+}> = ({ toast, onDismiss }) => {
+  useEffect(() => {
+    const timer = setTimeout(() => onDismiss(toast.id), 6000);
+    return () => clearTimeout(timer);
+  }, [toast.id, onDismiss]);
+
+  const bgColor = {
+    success: "bg-green-50 dark:bg-green-900/30",
+    info: "bg-blue-50 dark:bg-blue-900/30",
+    warning: "bg-yellow-50 dark:bg-yellow-900/30",
+    error: "bg-red-50 dark:bg-red-900/30",
+  }[toast.type];
+
+  const borderColor = {
+    success: "border-green-200 dark:border-green-800",
+    info: "border-blue-200 dark:border-blue-800",
+    warning: "border-yellow-200 dark:border-yellow-800",
+    error: "border-red-200 dark:border-red-800",
+  }[toast.type];
+
+  const textColor = {
+    success: "text-green-800 dark:text-green-200",
+    info: "text-blue-800 dark:text-blue-200",
+    warning: "text-yellow-800 dark:text-yellow-200",
+    error: "text-red-800 dark:text-red-200",
+  }[toast.type];
+
+  const iconColor = {
+    success: "text-green-600 dark:text-green-400",
+    info: "text-blue-600 dark:text-blue-400",
+    warning: "text-yellow-600 dark:text-yellow-400",
+    error: "text-red-600 dark:text-red-400",
+  }[toast.type];
+
+  const Icon = {
+    success: CheckCircle,
+    info: AlertCircle,
+    warning: AlertCircle,
+    error: AlertCircle,
+  }[toast.type];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20, x: 400 }}
+      animate={{ opacity: 1, y: 0, x: 0 }}
+      exit={{ opacity: 0, y: -20, x: 400 }}
+      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+      className={`${bgColor} ${borderColor} border rounded-lg shadow-lg p-4 flex items-start gap-3 mb-3 max-w-md`}
+    >
+      <Icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${iconColor}`} />
+      <div className="flex-1">
+        <p className={`${textColor} text-sm font-medium`}>{toast.message}</p>
+        {toast.recommendation && (
+          <p className={`${textColor} text-xs mt-1 opacity-75`}>
+            {toast.recommendation.recommendation.slice(0, 80)}...
+          </p>
+        )}
+      </div>
+      <button
+        onClick={() => onDismiss(toast.id)}
+        className={`${textColor} hover:opacity-70 transition`}
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </motion.div>
+  );
+};
+
+// ✅ Popup Alert for High Priority Recommendations
+const PopupAlert: React.FC<{
+  recommendation: Recommendation;
+  onClose: () => void;
+}> = ({ recommendation, onClose }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white dark:bg-[#121214] rounded-2xl shadow-2xl max-w-md w-full p-6 border border-purple-200 dark:border-purple-500/30"
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <motion.div
+              animate={{ scale: [1, 1.2, 1] }}
+              transition={{ duration: 1, repeat: Infinity }}
+              className="p-2 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full"
+            >
+              <Lightbulb className="w-6 h-6 text-white" />
+            </motion.div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                ✨ New Recommendation
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {recommendation.priority.toUpperCase()} PRIORITY
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="mb-6">
+          <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm">
+            {recommendation.recommendation}
+          </p>
+
+          {/* Context Info */}
+          {recommendation.context && (
+            <div className="mt-4 p-3 bg-gray-50 dark:bg-[#1a1a1d] rounded-lg space-y-2">
+              {recommendation.context.focusScore !== undefined && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    Focus Score:
+                  </span>
+                  <span className="text-xs text-purple-600 dark:text-purple-400 font-semibold">
+                    {recommendation.context.focusScore}%
+                  </span>
+                </div>
+              )}
+              {recommendation.context.sessionDuration && (
+                <div className="flex items-center gap-2">
+                  <Clock className="w-3 h-3 text-gray-500" />
+                  <span className="text-xs text-gray-600 dark:text-gray-400">
+                    Session: {Math.floor(recommendation.context.sessionDuration / 60)} min
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800 transition font-medium text-sm"
+          >
+            Later
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-purple-500 text-white hover:opacity-90 transition font-medium text-sm"
+          >
+            Got It
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
 
 const Recommendations: React.FC = () => {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [popupRec, setPopupRec] = useState<Recommendation | null>(null);
+
 
   const getJwtToken = () => localStorage.getItem("token") || "";
 
+
+  // ✅ NEW: Add toast notification
+  const addToast = (message: string, type: "success" | "info" | "warning" | "error", recommendation?: Recommendation) => {
+    const id = Date.now().toString();
+    setToasts(prev => [...prev, { id, message, type, recommendation }]);
+  };
+
+  // ✅ NEW: Remove toast
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+
   // Parse markdown-style text to React elements
   const parseRecommendationText = (text: string) => {
-    // Remove leading/trailing asterisks and emojis for cleaner display
     let cleaned = text.trim();
-    
-    // Remove wrapper asterisks like **text** or **"text"**
     cleaned = cleaned.replace(/^\*\*"?(.*?)"?\*\*$/g, '$1');
     cleaned = cleaned.replace(/^\*\*(.*?)\*\*$/g, '$1');
     
-    // Split by lines for better formatting
     const lines = cleaned.split('\n').filter(line => line.trim());
     
     return lines.map((line, idx) => {
-      // Remove leading emojis and asterisks
       let processedLine = line.trim().replace(/^[✨🎯💡⚡🔥]+\s*/g, '');
       processedLine = processedLine.replace(/^\*\*"?(.*?)"?\*\*$/g, '$1');
       processedLine = processedLine.replace(/^\*\*(.*?)\*\*$/g, '$1');
       
-      // Handle bold text mid-sentence
       const parts = processedLine.split(/(\*\*.*?\*\*)/g);
       
       return (
         <p key={idx} className={idx > 0 ? "mt-2" : ""}>
           {parts.map((part, i) => {
             if (part.startsWith('**') && part.endsWith('**')) {
-              // Bold text
               return <strong key={i} className="font-semibold text-purple-600 dark:text-purple-400">{part.slice(2, -2)}</strong>;
             }
             return <span key={i}>{part}</span>;
@@ -73,18 +264,19 @@ const Recommendations: React.FC = () => {
     });
   };
 
-  // Get short preview text (without markdown)
+
   const getPreviewText = (text: string, maxLength: number = 60) => {
     let cleaned = text.trim()
-      .replace(/\*\*/g, '') // Remove bold markers
-      .replace(/[✨🎯💡⚡🔥]/g, '') // Remove emojis
-      .replace(/^["']|["']$/g, ''); // Remove quotes
+      .replace(/\*\*/g, '')
+      .replace(/[✨🎯💡⚡🔥]/g, '')
+      .replace(/^["']|["']$/g, '');
     
     if (cleaned.length > maxLength) {
       return cleaned.slice(0, maxLength) + '...';
     }
     return cleaned;
   };
+
 
   const fetchRecommendations = useCallback(async () => {
     setLoading(true);
@@ -95,8 +287,35 @@ const Recommendations: React.FC = () => {
         headers: { Authorization: `Bearer ${jwt}` },
       });
       console.log('📊 Recommendations received:', res.data.history);
+      
       if (res.data?.history) {
-        setRecommendations(res.data.history);
+        const newRecs = res.data.history;
+        
+        // ✅ FIX: Detect NEW recommendations
+        setRecommendations(prev => {
+          const prevIds = new Set(prev.map(r => r._id));
+          
+          newRecs.forEach((rec: Recommendation) => {
+            if (!prevIds.has(rec._id)) {
+              console.log('🆕 New recommendation detected:', rec._id);
+              
+              // ✅ Show toast for ALL new recommendations
+              addToast(
+                `🎯 New ${rec.type} recommendation!`,
+                rec.priority === 'high' ? 'warning' : 'info',
+                rec
+              );
+              
+              // ✅ Show popup for HIGH priority recommendations
+              if (rec.priority === 'high') {
+                console.log('🚨 HIGH priority - showing popup');
+                setPopupRec(rec);
+              }
+            }
+          });
+          
+          return newRecs;
+        });
       } else {
         setRecommendations([]);
       }
@@ -104,30 +323,39 @@ const Recommendations: React.FC = () => {
       console.error("❌ Failed to fetch recommendations:", err);
       setRecommendations([]);
       setError("Failed to load recommendations.");
+      addToast("Failed to load recommendations", "error");
     } finally {
       setLoading(false);
     }
   }, []);
 
+
   useEffect(() => {
     fetchRecommendations();
-    const intervalId = setInterval(fetchRecommendations, 60000);
+    // ✅ Poll for new recommendations every 30 seconds
+    const intervalId = setInterval(fetchRecommendations, 30000);
     return () => clearInterval(intervalId);
   }, [fetchRecommendations]);
+
 
   const toggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id);
   };
 
+
   const handleRemove = (id: string) => {
     setRecommendations((prev) => prev.filter((r) => r._id !== id));
+    addToast("Recommendation removed", "success");
   };
+
 
   const handleComplete = (id: string) => {
     setRecommendations((prev) =>
       prev.map((r) => (r._id === id ? { ...r, completed: true } : r))
     );
+    addToast("✅ Great job! Recommendation marked complete", "success");
   };
+
 
   const formatTime = (ts: string) => {
     try {
@@ -145,7 +373,7 @@ const Recommendations: React.FC = () => {
     }
   };
 
-  // Get priority badge styling
+
   const getPriorityBadge = (priority: string) => {
     switch(priority) {
       case 'high':
@@ -159,8 +387,32 @@ const Recommendations: React.FC = () => {
     }
   };
 
+
   return (
     <div className="flex flex-col min-h-screen transition-colors duration-300 bg-gray-50 dark:bg-[#0B0B0F] text-gray-900 dark:text-gray-100">
+      {/* ✅ Toast Container */}
+      <div className="fixed top-6 right-6 z-40 space-y-2">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <ToastNotification
+              key={toast.id}
+              toast={toast}
+              onDismiss={removeToast}
+            />
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* ✅ Popup Alert for High Priority */}
+      <AnimatePresence>
+        {popupRec && (
+          <PopupAlert
+            recommendation={popupRec}
+            onClose={() => setPopupRec(null)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="px-10 py-6 border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
         <div>
@@ -188,6 +440,7 @@ const Recommendations: React.FC = () => {
         </button>
       </header>
 
+
       {/* Main Content */}
       <main className="flex-1 px-10 py-8">
         <div className="flex items-center gap-3 mb-6">
@@ -197,6 +450,7 @@ const Recommendations: React.FC = () => {
             ({recommendations.length} active)
           </span>
         </div>
+
 
         {loading ? (
           <div className="flex justify-center items-center h-64">
@@ -257,6 +511,7 @@ const Recommendations: React.FC = () => {
                       </div>
                     </div>
 
+
                     <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 mb-3 flex-wrap">
                       <div className="flex items-center gap-1">
                         <Tag className="w-4 h-4" />
@@ -268,6 +523,7 @@ const Recommendations: React.FC = () => {
                       </div>
                       {getPriorityBadge(rec.priority)}
                     </div>
+
 
                     <AnimatePresence>
                       {expandedId === rec._id && (
@@ -305,6 +561,7 @@ const Recommendations: React.FC = () => {
                     </AnimatePresence>
                   </div>
 
+
                   <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200 dark:border-white/10">
                     <button
                       onClick={(e) => {
@@ -339,5 +596,6 @@ const Recommendations: React.FC = () => {
     </div>
   );
 };
+
 
 export default Recommendations;

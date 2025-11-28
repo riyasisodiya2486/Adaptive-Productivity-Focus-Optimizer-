@@ -24,6 +24,11 @@ app.use("/api/v1/gamification", gamificationRouter);
 app.use("/api/v1/analytics", analyticsRouter);
 app.use("/api/v1/recommendations", recommendationRouter);
 
+app.get('/api/v1/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date() });
+});
+
+
 const server = http.createServer(app);
 setupWebSocket(server);
 

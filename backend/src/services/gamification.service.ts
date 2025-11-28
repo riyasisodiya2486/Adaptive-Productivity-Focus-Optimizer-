@@ -4,14 +4,17 @@ import { Session } from "../models/session.model";
 import { Activity } from "../models/activity.model";
 import {BADGE_DEFINITIONS, ACHIEVEMENT_DEFINITIONS, DAILY_CHALLENGE_POOL, WEEKLY_CHALLENGE_POOL, MONTHLY_CHALLENGE_POOL} from "./badge.defination";
 
+
 function pickRandomChallenges(pool: any[], count: number) {
   const shuffled = [...pool].sort(() => 0.5 - Math.random());
   return shuffled.slice(0, count);
 }
+
 function getWeekNumber(date: Date) {
   const firstJan = new Date(date.getFullYear(), 0, 1);
   return Math.ceil((((date.getTime() - firstJan.getTime()) / 86400000) + firstJan.getDay()+1) / 7);
 }
+
 
 export class GamificationService {
     
@@ -30,24 +33,63 @@ export class GamificationService {
         return 'Legendary Producer';
     }
 
-    // Get or create gamification profile
+    // Get or create gamification profile - ✅ FIX: Use upsert instead of create
     static async getUserGamification(userId: string) {
-        let gamification = await Gamification.findOne({ userId });
+        try {
+            console.log(`[Gamification] 🔍 Fetching gamification for user: ${userId}`);
 
-        if (!gamification) {
-            gamification = await Gamification.create({
-                userId,
-                level: 1,
-                xp: 0,
-                xpToNextLevel: this.calculateXpForLevel(1),
-                totalXpEarned: 0,
-                title: 'Focus Novice',
-                achievements: this.initializeAchievements(),
-                challenges: await this.generateDailyChallenges()
-            });
+            // ✅ FIX: Use findOneAndUpdate with upsert to prevent E11000 errors
+            const gamification = await Gamification.findOneAndUpdate(
+                { userId },
+                {
+                    $setOnInsert: {
+                        userId,
+                        level: 1,
+                        xp: 0,
+                        xpToNextLevel: this.calculateXpForLevel(1),
+                        totalXpEarned: 0,
+                        title: 'Focus Novice',
+                        badges: [],
+                        achievements: this.initializeAchievements(),
+                        challenges: [],
+                        statistics: {
+                            totalSessions: 0,
+                            totalFocusTime: 0,
+                            totalBreaksTaken: 0,
+                            sessionsThisWeek: 0,
+                            sessionsThisMonth: 0,
+                            averageFocusScore: 0,
+                            bestFocusScore: 0,
+                            perfectDays: 0
+                        },
+                        streaks: {
+                            currentStreak: 0,
+                            longestStreak: 0,
+                            lastActivityDate: null
+                        },
+                        leaderboard: {
+                            totalXp: 0,
+                            weeklyXp: 0,
+                            monthlyXp: 0,
+                            rank: 0
+                        },
+                        milestones: [],
+                        createdAt: new Date()
+                    }
+                },
+                { 
+                    upsert: true,        // ✅ Create if doesn't exist
+                    new: true,           // ✅ Return updated document
+                    lean: false          // ✅ Return full document
+                }
+            );
+
+            console.log(`[Gamification] ✅ User gamification retrieved/initialized`);
+            return gamification;
+        } catch (err: any) {
+            console.error('[Gamification] ❌ Error in getUserGamification:', err);
+            throw err;
         }
-
-        return gamification;
     }
 
     // Initialize all achievements with progress 0
@@ -134,7 +176,7 @@ export class GamificationService {
             })()
         }));
         return [...dailyChallenges, ...weeklyChallenges, ...monthlyChallenges];
-        }
+    }
 
     // Calculate focus score from activities
     static async calculateSessionFocusScore(sessionId: string): Promise<number> {
@@ -151,106 +193,114 @@ export class GamificationService {
 
     // Calculate and add XP from a session
     static async calculateAndAddXP(userId: string, sessionId: string) {
-        const session = await Session.findById(sessionId);
-        if (!session || session.userId.toString() !== userId) {
-            throw new Error('Session not found or unauthorized');
+        try {
+            const session = await Session.findById(sessionId);
+            if (!session || session.userId.toString() !== userId) {
+                throw new Error('Session not found or unauthorized');
+            }
+
+            // ✅ FIX: Use getUserGamification instead of direct findOne
+            const gamification = await this.getUserGamification(userId);
+
+            // Calculate focus score from activities
+            const focusScore = await this.calculateSessionFocusScore(sessionId);
+
+            // Get session metrics with safe defaults
+            const sessionDuration = session.duration || 0;
+            const focusMinutes = Math.floor(sessionDuration / 60);
+            
+            // Count distractions from activities
+            const activities = await Activity.find({ sessionId });
+            const distractionsCount = activities.reduce((sum, activity) => {
+                return sum + (activity.distractionDetected?.length || 0);
+            }, 0);
+
+            // Calculate XP based on session metrics
+            let xpEarned = 0;
+
+            // Base XP: 10 XP per minute of focus time
+            xpEarned += focusMinutes * 10;
+
+            // Bonus XP for high focus score
+            if (focusScore >= 90) xpEarned += 100;
+            else if (focusScore >= 80) xpEarned += 50;
+            else if (focusScore >= 70) xpEarned += 25;
+
+            // Bonus XP for no distractions
+            if (distractionsCount === 0) xpEarned += 50;
+
+            // Bonus XP for breaks taken (if session has breaks array)
+            const breaksCount = (session as any).breaks?.length || 0;
+            if (breaksCount > 0) xpEarned += breaksCount * 10;
+
+            // Add XP
+            gamification.xp += xpEarned;
+            gamification.totalXpEarned += xpEarned;
+            gamification.leaderboard.totalXp += xpEarned;
+            gamification.leaderboard.weeklyXp += xpEarned;
+            gamification.leaderboard.monthlyXp += xpEarned;
+
+            // Update statistics
+            gamification.statistics.totalSessions += 1;
+            gamification.statistics.totalFocusTime += focusMinutes;
+            gamification.statistics.totalBreaksTaken += breaksCount;
+            gamification.statistics.sessionsThisWeek += 1;
+            gamification.statistics.sessionsThisMonth += 1;
+
+            // Update average focus score
+            const totalSessions = gamification.statistics.totalSessions;
+            const currentAvg = gamification.statistics.averageFocusScore;
+            gamification.statistics.averageFocusScore = 
+                (currentAvg * (totalSessions - 1) + focusScore) / totalSessions;
+
+            // Update best focus score
+            if (focusScore > gamification.statistics.bestFocusScore) {
+                gamification.statistics.bestFocusScore = focusScore;
+            }
+
+            // Check for perfect day (>90% focus)
+            if (focusScore >= 90) {
+                gamification.statistics.perfectDays += 1;
+            }
+
+            // Update streak
+            await this.updateStreak(gamification);
+
+            // Check for level up
+            const leveledUp = await this.checkLevelUp(gamification);
+
+            // Check achievements and badges
+            const newAchievements = await this.checkAchievements(gamification, {
+                focusScore,
+                duration: sessionDuration,
+                distractionsCount
+            });
+            const newBadges = await this.checkBadges(gamification);
+
+            // Update challenges
+            await this.updateChallenges(gamification, {
+                focusScore,
+                duration: sessionDuration
+            });
+
+            await gamification.save();
+
+            console.log(`[Gamification] ✅ XP calculated and added: ${xpEarned}`);
+
+            return {
+                xpEarned,
+                totalXp: gamification.xp,
+                level: gamification.level,
+                leveledUp,
+                newAchievements,
+                newBadges,
+                currentStreak: gamification.streaks.currentStreak,
+                focusScore
+            };
+        } catch (err: any) {
+            console.error('[Gamification] ❌ Error calculating XP:', err);
+            throw err;
         }
-
-        const gamification = await this.getUserGamification(userId);
-
-        // Calculate focus score from activities
-        const focusScore = await this.calculateSessionFocusScore(sessionId);
-
-        // Get session metrics with safe defaults
-        const sessionDuration = session.duration || 0;
-        const focusMinutes = Math.floor(sessionDuration / 60);
-        
-        // Count distractions from activities
-        const activities = await Activity.find({ sessionId });
-        const distractionsCount = activities.reduce((sum, activity) => {
-            return sum + (activity.distractionDetected?.length || 0);
-        }, 0);
-
-        // Calculate XP based on session metrics
-        let xpEarned = 0;
-
-        // Base XP: 10 XP per minute of focus time
-        xpEarned += focusMinutes * 10;
-
-        // Bonus XP for high focus score
-        if (focusScore >= 90) xpEarned += 100;
-        else if (focusScore >= 80) xpEarned += 50;
-        else if (focusScore >= 70) xpEarned += 25;
-
-        // Bonus XP for no distractions
-        if (distractionsCount === 0) xpEarned += 50;
-
-        // Bonus XP for breaks taken (if session has breaks array)
-        const breaksCount = (session as any).breaks?.length || 0;
-        if (breaksCount > 0) xpEarned += breaksCount * 10;
-
-        // Add XP
-        gamification.xp += xpEarned;
-        gamification.totalXpEarned += xpEarned;
-        gamification.leaderboard.totalXp += xpEarned;
-        gamification.leaderboard.weeklyXp += xpEarned;
-        gamification.leaderboard.monthlyXp += xpEarned;
-
-        // Update statistics
-        gamification.statistics.totalSessions += 1;
-        gamification.statistics.totalFocusTime += focusMinutes;
-        gamification.statistics.totalBreaksTaken += breaksCount;
-        gamification.statistics.sessionsThisWeek += 1;
-        gamification.statistics.sessionsThisMonth += 1;
-
-        // Update average focus score
-        const totalSessions = gamification.statistics.totalSessions;
-        const currentAvg = gamification.statistics.averageFocusScore;
-        gamification.statistics.averageFocusScore = 
-            (currentAvg * (totalSessions - 1) + focusScore) / totalSessions;
-
-        // Update best focus score
-        if (focusScore > gamification.statistics.bestFocusScore) {
-            gamification.statistics.bestFocusScore = focusScore;
-        }
-
-        // Check for perfect day (>90% focus)
-        if (focusScore >= 90) {
-            gamification.statistics.perfectDays += 1;
-        }
-
-        // Update streak
-        await this.updateStreak(gamification);
-
-        // Check for level up
-        const leveledUp = await this.checkLevelUp(gamification);
-
-        // Check achievements and badges
-        const newAchievements = await this.checkAchievements(gamification, {
-            focusScore,
-            duration: sessionDuration,
-            distractionsCount
-        });
-        const newBadges = await this.checkBadges(gamification);
-
-        // Update challenges
-        await this.updateChallenges(gamification, {
-            focusScore,
-            duration: sessionDuration
-        });
-
-        await gamification.save();
-
-        return {
-            xpEarned,
-            totalXp: gamification.xp,
-            level: gamification.level,
-            leveledUp,
-            newAchievements,
-            newBadges,
-            currentStreak: gamification.streaks.currentStreak,
-            focusScore
-        };
     }
 
     // Update user streak
@@ -419,67 +469,73 @@ export class GamificationService {
 
     // Update challenges
     static async updateChallenges(gamification: any, sessionData: any) {
-    const now = new Date();
-    // Remove expired challenges
-    gamification.challenges = gamification.challenges.filter((c: any) =>
-      c.expiresAt > now
-    );
-    for (const challenge of gamification.challenges) {
-      if (challenge.completed) continue;
-      // Daily logic (sessions, time)
-      if (challenge.type === "daily") {
-        if (challenge.challengeId.includes("sessions")) challenge.progress += 1;
-        if (challenge.challengeId.includes("time")) challenge.progress += Math.floor(sessionData.duration / 60);
-        if (challenge.customCheck === "avgFocusAbove75" && (sessionData.dailyAverageFocus || 0) > 75) challenge.progress = challenge.requirement;
-        if (challenge.customCheck === "startBefore8am" && sessionData.startedBefore8am) challenge.progress = challenge.requirement;
-        if (challenge.customCheck === "noDistractions" && sessionData.distractionsCount === 0) challenge.progress = challenge.requirement;
-        if (challenge.progress >= challenge.requirement) {
-          challenge.completed = true;
-          gamification.xp += challenge.xpReward;
-          gamification.totalXpEarned += challenge.xpReward;
+        const now = new Date();
+        // Remove expired challenges
+        gamification.challenges = gamification.challenges.filter((c: any) =>
+          c.expiresAt > now
+        );
+        for (const challenge of gamification.challenges) {
+          if (challenge.completed) continue;
+          // Daily logic (sessions, time)
+          if (challenge.type === "daily") {
+            if (challenge.challengeId.includes("sessions")) challenge.progress += 1;
+            if (challenge.challengeId.includes("time")) challenge.progress += Math.floor(sessionData.duration / 60);
+            if (challenge.customCheck === "avgFocusAbove75" && (sessionData.dailyAverageFocus || 0) > 75) challenge.progress = challenge.requirement;
+            if (challenge.customCheck === "startBefore8am" && sessionData.startedBefore8am) challenge.progress = challenge.requirement;
+            if (challenge.customCheck === "noDistractions" && sessionData.distractionsCount === 0) challenge.progress = challenge.requirement;
+            if (challenge.progress >= challenge.requirement) {
+              challenge.completed = true;
+              gamification.xp += challenge.xpReward;
+              gamification.totalXpEarned += challenge.xpReward;
+            }
+          }
+          // Weekly logic (sessions, hours, days worked, high focus streaks)
+          if (challenge.type === "weekly") {
+            if (challenge.challengeId.includes("sessions")) challenge.progress += 1;
+            if (challenge.challengeId.includes("Hour_Hero")) challenge.progress += Math.floor(sessionData.duration / 60);
+            if (challenge.customCheck === "noDaysMissed" && sessionData.workedEveryDayThisWeek) challenge.progress = challenge.requirement;
+            if (challenge.customCheck === "fiveHighFocusSessions" && sessionData.weeklyHighFocusSessions >= 5) challenge.progress = challenge.requirement;
+            if (challenge.progress >= challenge.requirement) {
+              challenge.completed = true;
+              gamification.xp += challenge.xpReward;
+              gamification.totalXpEarned += challenge.xpReward;
+            }
+          }
+          // Monthly logic
+          if (challenge.type === "monthly") {
+            if (challenge.challengeId.includes("sessions")) challenge.progress += 1;
+            if (challenge.customCheck === "tenDayStreak" && sessionData.longestStreakThisMonth >= 10) challenge.progress = challenge.requirement;
+            if (challenge.customCheck === "avgFocusAbove90" && (sessionData.monthlyAverageFocus || 0) >= 90) challenge.progress = challenge.requirement;
+            if (challenge.customCheck === "fourMondays" && sessionData.mondaysWithSession >= 4) challenge.progress = challenge.requirement;
+            if (challenge.progress >= challenge.requirement) {
+              challenge.completed = true;
+              gamification.xp += challenge.xpReward;
+              gamification.totalXpEarned += challenge.xpReward;
+            }
+          }
         }
-      }
-      // Weekly logic (sessions, hours, days worked, high focus streaks)
-      if (challenge.type === "weekly") {
-        if (challenge.challengeId.includes("sessions")) challenge.progress += 1;
-        if (challenge.challengeId.includes("Hour_Hero")) challenge.progress += Math.floor(sessionData.duration / 60);
-        if (challenge.customCheck === "noDaysMissed" && sessionData.workedEveryDayThisWeek) challenge.progress = challenge.requirement;
-        if (challenge.customCheck === "fiveHighFocusSessions" && sessionData.weeklyHighFocusSessions >= 5) challenge.progress = challenge.requirement;
-        if (challenge.progress >= challenge.requirement) {
-          challenge.completed = true;
-          gamification.xp += challenge.xpReward;
-          gamification.totalXpEarned += challenge.xpReward;
+        if (gamification.challenges.length === 0) {
+          gamification.challenges = await this.generateChallenges();
         }
-      }
-      // Monthly logic
-      if (challenge.type === "monthly") {
-        if (challenge.challengeId.includes("sessions")) challenge.progress += 1;
-        if (challenge.customCheck === "tenDayStreak" && sessionData.longestStreakThisMonth >= 10) challenge.progress = challenge.requirement;
-        if (challenge.customCheck === "avgFocusAbove90" && (sessionData.monthlyAverageFocus || 0) >= 90) challenge.progress = challenge.requirement;
-        if (challenge.customCheck === "fourMondays" && sessionData.mondaysWithSession >= 4) challenge.progress = challenge.requirement;
-        if (challenge.progress >= challenge.requirement) {
-          challenge.completed = true;
-          gamification.xp += challenge.xpReward;
-          gamification.totalXpEarned += challenge.xpReward;
-        }
-      }
     }
-    if (gamification.challenges.length === 0) {
-      gamification.challenges = await this.generateChallenges();
-    }
-  }
 
     // Get user badges with unlock status
     static async getUserBadges(userId: string) {
-        const gamification = await this.getUserGamification(userId);
-        const unlockedBadgeIds = gamification.badges.map((b: any) => b.badgeId);
+        try {
+            // ✅ FIX: Use getUserGamification to ensure user exists
+            const gamification = await this.getUserGamification(userId);
+            const unlockedBadgeIds = gamification.badges.map((b: any) => b.badgeId);
 
-        return Object.values(BADGE_DEFINITIONS).map(badge => ({
-            ...badge,
-            unlocked: unlockedBadgeIds.includes(badge.badgeId),
-            progress: this.calculateBadgeProgress(badge.badgeId, gamification),
-            requirement: this.getBadgeRequirement(badge.badgeId)
-        }));
+            return Object.values(BADGE_DEFINITIONS).map(badge => ({
+                ...badge,
+                unlocked: unlockedBadgeIds.includes(badge.badgeId),
+                progress: this.calculateBadgeProgress(badge.badgeId, gamification),
+                requirement: this.getBadgeRequirement(badge.badgeId)
+            }));
+        } catch (err: any) {
+            console.error('[Gamification] ❌ Error getting badges:', err);
+            throw err;
+        }
     }
 
     // Calculate badge progress
@@ -522,14 +578,19 @@ export class GamificationService {
 
     // Get leaderboard
     static async getLeaderboard(type: 'total' | 'weekly' | 'monthly' = 'total', limit: number = 100) {
-        const sortField = type === 'weekly' ? 'leaderboard.weeklyXp' : 
-                         type === 'monthly' ? 'leaderboard.monthlyXp' : 
-                         'leaderboard.totalXp';
+        try {
+            const sortField = type === 'weekly' ? 'leaderboard.weeklyXp' : 
+                             type === 'monthly' ? 'leaderboard.monthlyXp' : 
+                             'leaderboard.totalXp';
 
-        return await Gamification.find()
-            .sort({ [sortField]: -1 })
-            .limit(limit)
-            .populate('userId', 'name email')
-            .select('userId level totalXpEarned title leaderboard');
+            return await Gamification.find()
+                .sort({ [sortField]: -1 })
+                .limit(limit)
+                .populate('userId', 'name email')
+                .select('userId level totalXpEarned title leaderboard');
+        } catch (err: any) {
+            console.error('[Gamification] ❌ Error getting leaderboard:', err);
+            throw err;
+        }
     }
 }

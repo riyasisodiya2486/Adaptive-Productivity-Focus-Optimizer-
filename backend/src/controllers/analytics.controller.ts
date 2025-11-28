@@ -8,7 +8,6 @@ const MS_IN_MINUTE = 60 * 1000;
 
 function parseRangeToDate(range: string): Date | null {
     const now = new Date();
-    // Normalize 'now' to the start of the current day for accurate range calculation
     now.setHours(0, 0, 0, 0); 
     
     switch (range) {
@@ -27,13 +26,11 @@ function parseRangeToDate(range: string): Date | null {
     }
 }
 
-// Helper to convert seconds to minutes (returns a float for internal accuracy)
+// Helper to convert seconds to minutes
 const secToMin = (seconds: number) => seconds / 60;
 
 // Helper to calculate the productive/distracting time for a session (in minutes)
 const calculateSessionTime = (session: any) => {
-    // Note: session.statistics?.totalFocusTime is in seconds.
-    // CRITICAL FIX: Ensure safe access and default to 0
     const totalFocusSeconds = session.statistics?.totalFocusTime || 0; 
     
     // Check for missing start/end times

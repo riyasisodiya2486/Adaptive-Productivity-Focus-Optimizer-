@@ -1,7 +1,7 @@
 
 interface BadgeUnlockCondition {
     type: 'totalSessions' | 'totalFocusTime' | 'bestFocusScore' | 'longestStreak' | 'perfectDays' | 'level';
-    value: number; // The target value
+    value: number; 
 }
 
 export interface IBadgeDefinition {
@@ -10,7 +10,7 @@ export interface IBadgeDefinition {
     tier: 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond';
     category: 'focus' | 'streak' | 'productivity' | 'mastery' | 'social' | 'time';
     description: string;
-    unlockRequirement: BadgeUnlockCondition; // NOW POPULATED BELOW
+    unlockRequirement: BadgeUnlockCondition; 
     icon: string;
     xpReward: number;
     image: string;
@@ -25,7 +25,7 @@ export const BADGE_DEFINITIONS: Record<string, IBadgeDefinition> = {
     category: 'focus' as const,
     description:
       'A golden helmet with a glowing aura and lightning bolt, symbolizing **heroic attention** and mental clarity.',
-    unlockRequirement: { type: 'bestFocusScore', value: 98 }, // Must achieve an ultra-high focus score once
+    unlockRequirement: { type: 'bestFocusScore', value: 98 }, 
     icon: 'zap',
     xpReward: 500,
     image: '/badges/focusHero.jpg'
@@ -38,7 +38,7 @@ export const BADGE_DEFINITIONS: Record<string, IBadgeDefinition> = {
     category: 'streak' as const,
     description:
       'A robust titan holding a blazing torch high atop crystal stairs, representing **unstoppable, long-term streaks**.',
-    unlockRequirement: { type: 'longestStreak', value: 60 }, // Longest streak reaches 60 days
+    unlockRequirement: { type: 'longestStreak', value: 60 }, 
     icon: 'flame',
     xpReward: 1200,
     image: '/badges/streakTitan.jpg'
@@ -51,7 +51,7 @@ export const BADGE_DEFINITIONS: Record<string, IBadgeDefinition> = {
     category: 'productivity' as const,
     description:
       'A mystical open book radiating purple energy, gears, and clocks, representing the **mastery of productivity sessions**.',
-    unlockRequirement: { type: 'totalSessions', value: 150 }, // Complete 150 sessions
+    unlockRequirement: { type: 'totalSessions', value: 150 }, 
     icon: 'book',
     xpReward: 600,
     image: '/badges/productivityAlchemist.png'
@@ -64,7 +64,7 @@ export const BADGE_DEFINITIONS: Record<string, IBadgeDefinition> = {
     category: 'focus' as const,
     description:
       'A superhero shield breaking through a cloud of red distractions, earned by achieving **multiple perfect focus days**.',
-    unlockRequirement: { type: 'perfectDays', value: 10 }, // Complete 10 days with >90% focus score (perfect days)
+    unlockRequirement: { type: 'perfectDays', value: 10 }, 
     icon: 'shield',
     xpReward: 400,
     image: '/badges/distractionDestroyer.png'
@@ -77,7 +77,7 @@ export const BADGE_DEFINITIONS: Record<string, IBadgeDefinition> = {
     category: 'time' as const,
     description:
       'A majestic hourglass with glowing liquid gold sand, symbolizing the **accumulation of significant focus time**.',
-    unlockRequirement: { type: 'totalFocusTime', value: 9000 }, // Accumulate 150 hours (9000 minutes)
+    unlockRequirement: { type: 'totalFocusTime', value: 9000 },
     icon: 'clock',
     xpReward: 700,
     image: '/badges/timeMaster.png'
@@ -90,7 +90,7 @@ export const BADGE_DEFINITIONS: Record<string, IBadgeDefinition> = {
     category: 'streak' as const,
     description:
       'A platinum badge crowned with laurel wreaths and a diamond star, awarded for achieving an **ultra-long activity streak**.',
-    unlockRequirement: { type: 'longestStreak', value: 180 }, // Longest streak reaches 180 days (6 months)
+    unlockRequirement: { type: 'longestStreak', value: 180 }, 
     icon: 'check-circle',
     xpReward: 1500,
     image: '/badges/ultraConsistency.png'
@@ -103,7 +103,7 @@ export const BADGE_DEFINITIONS: Record<string, IBadgeDefinition> = {
     category: 'mastery' as const,
     description:
       'A wise sage meditating on a floating lotus, radiating tranquility, earned by reaching a **high level of mastery**.',
-    unlockRequirement: { type: 'level', value: 30 }, // Reach Player Level 30
+    unlockRequirement: { type: 'level', value: 30 }, 
     icon: 'feather',
     xpReward: 2000,
     image: '/badges/zenGrandmaster.png'
@@ -116,7 +116,7 @@ export const BADGE_DEFINITIONS: Record<string, IBadgeDefinition> = {
     category: 'productivity' as const,
     description:
       'An electric blue badge with a roaring lion and lightning bolts, earned for **completing a very high number of sessions**.',
-    unlockRequirement: { type: 'totalSessions', value: 300 }, // Complete 300 sessions
+    unlockRequirement: { type: 'totalSessions', value: 300 }, 
     icon: 'activity',
     xpReward: 1000,
     image: '/badges/lightningPerformer.png'
@@ -129,7 +129,7 @@ export const BADGE_DEFINITIONS: Record<string, IBadgeDefinition> = {
     category: 'social' as const,
     description:
       'A shimmering constellation of joined hands and stardust, representing **excellence in collaboration** (or equivalent social metric).',
-    unlockRequirement: { type: 'perfectDays', value: 50 }, // Complete 50 "perfect days" (placeholder for social/perfect session metric)
+    unlockRequirement: { type: 'perfectDays', value: 50 }, 
     icon: 'users',
     xpReward: 900,
     image: '/badges/all-StarCollaborator.png'
@@ -142,7 +142,7 @@ export const BADGE_DEFINITIONS: Record<string, IBadgeDefinition> = {
     category: 'mastery' as const,
     description:
       'An ornate, glowing crown studded with cosmic gems, reserved for **the highest echelon of player level and achievement**.',
-    unlockRequirement: { type: 'level', value: 50 }, // Reach Player Level 50
+    unlockRequirement: { type: 'level', value: 50 },
     icon: 'star',
     xpReward: 5000,
     image: '/badges/legendaryProducer.png'

@@ -47,7 +47,6 @@ interface GamificationStats {
   monthlyXp: number;
 }
 
-// FIX 1: Updated Badge Interface to include unlockRequirement and image
 interface Badge {
   badgeId: string;
   name: string;
@@ -61,7 +60,7 @@ interface Badge {
   tier: string;
   category: string;
   image: string;
-  unlockRequirement: {
+  unlockRequirement?: {
     type: 'totalSessions' | 'totalFocusTime' | 'bestFocusScore' | 'longestStreak' | 'perfectDays' | 'level';
     value: number;
   };
@@ -102,7 +101,7 @@ interface Milestone {
   };
 }
 
-// --- Framer Motion Variants (Unchanged) ---
+// --- Framer Motion Variants ---
 
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
@@ -116,7 +115,7 @@ const containerVariants: Variants = {
 
 const itemVariants: Variants = {
   hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.5 } }, 
+  show: { opacity: 1, y: 0, transition: { duration: 0.5 } },
 };
 
 const cardHover: Variant = {
@@ -159,6 +158,7 @@ export default function Gamification() {
     loadAllGamificationData();
   }, []);
 
+  // ✅ ADD THIS DEBUG VERSION to see what's coming from backend
   const loadAllGamificationData = async () => {
     setLoading(true);
     setError(null);
@@ -168,6 +168,9 @@ export default function Gamification() {
         setError("Not authenticated");
         return;
       }
+
+      console.log("[Gamification] 🔄 Fetching all data...");
+
       const [statsRes, badgesRes, achievementsRes, challengesRes, milestonesRes] =
         await Promise.all([
           axios.get(`${BACKEND_URL}/gamification/user`, {
@@ -186,13 +189,45 @@ export default function Gamification() {
             headers: { Authorization: `Bearer ${jwt}` },
           }),
         ]);
-      setStats(statsRes.data.stats);
-      setBadges(badgesRes.data);
-      setAchievements(achievementsRes.data.achievements);
-      setChallenges(challengesRes.data.challenges);
-      setMilestones(milestonesRes.data.milestones);
+
+      // ✅ DEBUG: Log all responses
+      console.log("[Gamification] 📊 Stats Response:", statsRes.data);
+      console.log("[Gamification] 🏆 Badges Response:", badgesRes.data);
+      console.log("[Gamification] 🌟 Achievements Response:", achievementsRes.data);
+      console.log("[Gamification] ⚡ Challenges Response:", challengesRes.data);
+      console.log("[Gamification] 💎 Milestones Response:", milestonesRes.data);
+
+      // ✅ FIX: Handle different response formats from backend
+      const statsData = statsRes.data?.stats || statsRes.data;
+      const badgesData = Array.isArray(badgesRes.data) ? badgesRes.data : badgesRes.data?.badges || [];
+      const achievementsData = achievementsRes.data?.achievements || achievementsRes.data || [];
+      const challengesData = challengesRes.data?.challenges || challengesRes.data || [];
+      const milestonesData = milestonesRes.data?.milestones || milestonesRes.data || [];
+
+      console.log("[Gamification] ✅ Parsed Stats:", statsData);
+      console.log("[Gamification] ✅ Parsed Badges:", badgesData);
+      console.log("[Gamification] ✅ Parsed Achievements:", achievementsData);
+      console.log("[Gamification] ✅ Parsed Challenges:", challengesData);
+      console.log("[Gamification] ✅ Parsed Milestones:", milestonesData);
+
+      // ✅ Validate stats object
+      if (!statsData || typeof statsData !== "object") {
+        console.error("[Gamification] ❌ Invalid stats format:", statsData);
+        setError("Invalid stats data format from backend");
+        return;
+      }
+
+      setStats(statsData);
+      setBadges(Array.isArray(badgesData) ? badgesData : []);
+      setAchievements(Array.isArray(achievementsData) ? achievementsData : []);
+      setChallenges(Array.isArray(challengesData) ? challengesData : []);
+      setMilestones(Array.isArray(milestonesData) ? milestonesData : []);
+
+      console.log("[Gamification] 🎉 All data loaded successfully");
     } catch (error: any) {
-      setError(error?.response?.data?.msg || "Failed to load gamification");
+      console.error("[Gamification] ❌ Error:", error);
+      console.error("[Gamification] ❌ Error Response:", error?.response?.data);
+      setError(error?.response?.data?.msg || error?.message || "Failed to load gamification");
     } finally {
       setLoading(false);
     }
@@ -283,7 +318,7 @@ export default function Gamification() {
           🚀 Your Productivity HQ
         </h1>
         <p className="text-xl text-gray-600 dark:text-gray-400 font-light">
-          Level up, unlock **badges**, conquer **challenges**, and rise on the
+          Level up, unlock badges, conquer challenges, and rise on the
           leaderboard!
         </p>
       </motion.header>
@@ -293,7 +328,7 @@ export default function Gamification() {
         className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
         variants={itemVariants}
       >
-        {/* Level Card (Unchanged) */}
+        {/* Level Card */}
         <motion.div
           className="bg-gradient-to-br from-yellow-500 to-orange-500 rounded-3xl p-8 shadow-2xl text-white col-span-1 border-4 border-yellow-300/50 relative overflow-hidden"
           whileHover={{ scale: 1.05, rotate: 1 }}
@@ -325,7 +360,7 @@ export default function Gamification() {
           </div>
         </motion.div>
 
-        {/* Streak Card (Unchanged) */}
+        {/* Streak Card */}
         <motion.div
           className="bg-white dark:bg-[#121214] rounded-3xl p-8 border border-gray-200 dark:border-white/10 shadow-lg col-span-1"
           whileHover={cardHover}
@@ -340,11 +375,11 @@ export default function Gamification() {
             {stats.currentStreak}
           </p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-            **Longest:** {stats.longestStreak} days
+            Longest: {stats.longestStreak} days
           </p>
         </motion.div>
 
-        {/* Badges Progress (Unchanged) */}
+        {/* Badges Progress */}
         <motion.div
           className="bg-white dark:bg-[#121214] rounded-3xl p-8 border border-gray-200 dark:border-white/10 shadow-lg col-span-1"
           whileHover={cardHover}
@@ -366,7 +401,7 @@ export default function Gamification() {
           </div>
         </motion.div>
 
-        {/* Achievements Progress (Unchanged) */}
+        {/* Achievements Progress */}
         <motion.div
           className="bg-white dark:bg-[#121214] rounded-3xl p-8 border border-gray-200 dark:border-white/10 shadow-lg col-span-1"
           whileHover={cardHover}
@@ -391,272 +426,304 @@ export default function Gamification() {
         </motion.div>
       </motion.div>
 
-      {/* Stats Overview (Unchanged) */}
+      {/* Stats Overview - ✅ FIXED WITH DEBUG */}
       <motion.div
         className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4"
         variants={itemVariants}
       >
-        <StatCard
-          label="Total Sessions"
-          value={stats.totalSessions.toString()}
-          icon={CalendarCheck}
-          color="purple"
-        />
-        <StatCard
-          label="Total Focus Time"
-          value={formatFocusTime(stats.totalFocusTime)}
-          icon={Clock}
-          color="purple"
-        />
-        <StatCard
-          label="Avg Focus Score"
-          value={Math.round(stats.averageFocusScore).toString()}
-          icon={Gauge}
-          color="purple"
-        />
-        <StatCard
-          label="Best Focus Score"
-          value={stats.bestFocusScore.toString()}
-          icon={Star}
-          color="purple"
-        />
-        <StatCard
-          label="Perfect Days"
-          value={stats.perfectDays.toString()}
-          icon={CalendarCheck}
-          color="purple"
-        />
+        {/* Debug: Show if stats exist */}
+        {!stats && (
+          <div className="col-span-5 p-4 bg-red-100 dark:bg-red-900/30 rounded-lg">
+            <p className="text-red-600 dark:text-red-400">⚠️ Stats is null</p>
+          </div>
+        )}
+
+        {stats && (
+          <>
+            {/* Debug: Show actual values */}
+            <div className="col-span-5 p-4 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-xs">
+              <p className="text-blue-600 dark:text-blue-400">
+                ✅ Debug: totalSessions={stats.totalSessions}, 
+                totalFocusTime={stats.totalFocusTime}, 
+                avgFocusScore={stats.averageFocusScore}
+              </p>
+            </div>
+
+            <StatCard
+              label="Total Sessions"
+              value={stats.totalSessions?.toString() || "0"}
+              icon={CalendarCheck}
+              color="purple"
+            />
+            <StatCard
+              label="Total Focus Time"
+              value={formatFocusTime(stats.totalFocusTime || 0)}
+              icon={Clock}
+              color="blue"
+            />
+            <StatCard
+              label="Avg Focus Score"
+              value={Math.round(stats.averageFocusScore || 0).toString()}
+              icon={Gauge}
+              color="green"
+            />
+            <StatCard
+              label="Best Focus Score"
+              value={(stats.bestFocusScore || 0).toString()}
+              icon={Star}
+              color="orange"
+            />
+            <StatCard
+              label="Perfect Days"
+              value={(stats.perfectDays || 0).toString()}
+              icon={CalendarCheck}
+              color="red"
+            />
+          </>
+        )}
       </motion.div>
 
-      {/* Daily/Weekly Challenges Section (Unchanged) */}
+      {/* Daily/Weekly Challenges Section */}
       <motion.section className="space-y-6" variants={itemVariants}>
         <h2 className="text-3xl font-bold text-orange-500 border-b-2 border-orange-500/50 pb-2">
           ⚡ Daily Challenges
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {challenges.map((ch, index) => {
-            const now = Date.now();
-            const expiresAt = new Date(ch.expiresAt).getTime();
-            const timeLeftMs = expiresAt - now;
-            const hoursLeft = Math.max(
-              0,
-              Math.floor(timeLeftMs / (1000 * 60 * 60))
-            );
-            const progressPercentage = Math.min(
-              (ch.progress / ch.requirement) * 100,
-              100
-            );
-            return (
-              <motion.div
-                key={ch.challengeId}
-                className={`bg-white dark:bg-[#121214] rounded-2xl p-6 border-l-8 ${
-                  ch.completed
-                    ? "border-green-500 opacity-90"
-                    : "border-orange-500"
-                } shadow-xl cursor-pointer`}
-                initial={{ opacity: 0, y: 50 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.1 }}
-                whileHover={ch.completed ? cardHover : challengePulse}
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <Zap
-                    className={`w-7 h-7 flex-shrink-0 ${
-                      ch.completed ? "text-green-500" : "text-orange-500"
-                    }`}
+          {challenges.length === 0 ? (
+            <p className="text-gray-500">No challenges available</p>
+          ) : (
+            challenges.map((ch, index) => {
+              const now = Date.now();
+              const expiresAt = new Date(ch.expiresAt).getTime();
+              const timeLeftMs = expiresAt - now;
+              const hoursLeft = Math.max(
+                0,
+                Math.floor(timeLeftMs / (1000 * 60 * 60))
+              );
+              const progressPercentage = Math.min(
+                (ch.progress / ch.requirement) * 100,
+                100
+              );
+              return (
+                <motion.div
+                  key={ch.challengeId}
+                  className={`bg-white dark:bg-[#121214] rounded-2xl p-6 border-l-8 ${
+                    ch.completed
+                      ? "border-green-500 opacity-90"
+                      : "border-orange-500"
+                  } shadow-xl cursor-pointer`}
+                  initial={{ opacity: 0, y: 50 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: index * 0.1 }}
+                  whileHover={ch.completed ? cardHover : challengePulse}
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <Zap
+                      className={`w-7 h-7 flex-shrink-0 ${
+                        ch.completed ? "text-green-500" : "text-orange-500"
+                      }`}
+                    />
+                    <h3
+                      className={`text-xl font-bold ${
+                        ch.completed ? "text-green-500" : "text-orange-500"
+                      }`}
+                    >
+                      {ch.name}
+                    </h3>
+                  </div>
+                  <p className="text-sm mb-3 text-gray-500 dark:text-gray-400">
+                    {ch.description}
+                  </p>
+
+                  <ProgressBar
+                    progressPercentage={progressPercentage}
+                    unlocked={ch.completed}
+                    progress={ch.progress}
+                    requirement={ch.requirement}
+                    color={ch.completed ? "green" : "orange"}
                   />
-                  <h3
-                    className={`text-xl font-bold ${
-                      ch.completed ? "text-green-500" : "text-orange-500"
-                    }`}
-                  >
-                    {ch.name}
-                  </h3>
-                </div>
-                <p className="text-sm mb-3 text-gray-500 dark:text-gray-400">
-                  {ch.description}
-                </p>
 
-                <ProgressBar
-                  progressPercentage={progressPercentage}
-                  unlocked={ch.completed}
-                  progress={ch.progress}
-                  requirement={ch.requirement}
-                  color={ch.completed ? "green" : "orange"}
-                />
-
-                {ch.completed ? (
-                  <p className="text-xs font-medium text-green-500 mt-2">
-                    ✓ Completed • +{ch.xpReward} XP
-                  </p>
-                ) : (
-                  <p className="text-xs text-orange-600 mt-2 font-semibold">
-                    **Time Left:** {hoursLeft}h • Reward: +{ch.xpReward} XP
-                  </p>
-                )}
-              </motion.div>
-            );
-          })}
+                  {ch.completed ? (
+                    <p className="text-xs font-medium text-green-500 mt-2">
+                      ✓ Completed • +{ch.xpReward} XP
+                    </p>
+                  ) : (
+                    <p className="text-xs text-orange-600 mt-2 font-semibold">
+                      Time Left: {hoursLeft}h • Reward: +{ch.xpReward} XP
+                    </p>
+                  )}
+                </motion.div>
+              );
+            })
+          )}
         </div>
       </motion.section>
-      
+
       {/* Badges Section */}
       <motion.section className="space-y-6" variants={itemVariants}>
         <h2 className="text-3xl font-bold text-green-500 border-b-2 border-green-500/50 pb-2">
           🏆 Badges Collection
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {badges.map((badge, index) => {
-            const IconComponent = getIconComponent(badge.icon);
-            const progressPercentage = Math.min(
-              (badge.progress / badge.requirement) * 100,
-              100
-            );
-            return (
-              <motion.div
-                key={badge.badgeId}
-                className={`bg-white dark:bg-[#121214] rounded-2xl p-6 border border-gray-200 dark:border-white/10 shadow-lg cursor-pointer ${
-                  !badge.unlocked ? "opacity-70 grayscale" : "opacity-100"
-                }`}
-                initial={{ opacity: 0, y: 50 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.05 }}
-                whileHover={badgeHover}
-              >
-                {/* Badge Image/Icon (Unchanged) */}
-                <motion.div className="flex items-center justify-center mb-4">
-                  {badge.image ? (
-                    <motion.img
-                      src={badge.image}
-                      alt={badge.name}
-                      className="w-20 h-20 rounded-xl shadow-xl object-contain mx-auto border-4 border-purple-500/50 bg-gray-50 dark:bg-[#0B0B12]"
-                      initial={{ scale: 0.8 }}
-                      animate={{ scale: 1 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                    />
-                  ) : (
-                    <IconComponent
-                      className={`w-14 h-14 ${
-                        badge.unlocked ? "text-purple-500" : "text-gray-400"
-                      }`}
-                    />
-                  )}
-                </motion.div>
+          {badges.length === 0 ? (
+            <p className="text-gray-500">No badges available</p>
+          ) : (
+            badges.map((badge, index) => {
+              const IconComponent = getIconComponent(badge.icon);
+              const progressPercentage = Math.min(
+                (badge.progress / badge.requirement) * 100,
+                100
+              );
+              return (
+                <motion.div
+                  key={badge.badgeId}
+                  className={`bg-white dark:bg-[#121214] rounded-2xl p-6 border border-gray-200 dark:border-white/10 shadow-lg cursor-pointer ${
+                    !badge.unlocked ? "opacity-70 grayscale" : "opacity-100"
+                  }`}
+                  initial={{ opacity: 0, y: 50 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: index * 0.05 }}
+                  whileHover={badgeHover}
+                >
+                  {/* Badge Image/Icon */}
+                  <motion.div className="flex items-center justify-center mb-4">
+                    {badge.image ? (
+                      <motion.img
+                        src={badge.image}
+                        alt={badge.name}
+                        className="w-20 h-20 rounded-xl shadow-xl object-contain mx-auto border-4 border-purple-500/50 bg-gray-50 dark:bg-[#0B0B12]"
+                        initial={{ scale: 0.8 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                      />
+                    ) : (
+                      <IconComponent
+                        className={`w-14 h-14 ${
+                          badge.unlocked ? "text-purple-500" : "text-gray-400"
+                        }`}
+                      />
+                    )}
+                  </motion.div>
 
-                <div className="flex justify-between items-center mb-2">
-                  <h3
-                    className={`text-xl font-bold ${
-                      badge.unlocked ? "text-gray-900 dark:text-white" : "text-gray-400"
+                  <div className="flex justify-between items-center mb-2">
+                    <h3
+                      className={`text-xl font-bold ${
+                        badge.unlocked ? "text-gray-900 dark:text-white" : "text-gray-400"
+                      }`}
+                    >
+                      {badge.name || "Unknown Badge"}
+                    </h3>
+                    {badge.tier && <BadgeTierTag tier={badge.tier} />}
+                  </div>
+
+                  <p
+                    className={`text-sm mb-3 ${
+                      badge.unlocked
+                        ? "text-gray-500 dark:text-gray-400"
+                        : "text-gray-400"
                     }`}
                   >
-                    {badge.name}
-                  </h3>
-                  <BadgeTierTag tier={badge.tier} />
-                </div>
+                    {badge.description || "No description"}
+                  </p>
 
-                <p
-                  className={`text-sm mb-3 ${
-                    badge.unlocked
-                      ? "text-gray-500 dark:text-gray-400"
-                      : "text-gray-400"
-                  }`}
-                >
-                  {badge.description}
-                </p>
+                  <ProgressBar
+                    progressPercentage={progressPercentage}
+                    unlocked={badge.unlocked}
+                    progress={badge.progress || 0}
+                    requirement={badge.requirement || 1}
+                  />
 
-                <ProgressBar
-                  progressPercentage={progressPercentage}
-                  unlocked={badge.unlocked}
-                  progress={badge.progress}
-                  requirement={badge.requirement}
-                />
-
-                {/* FIX 2: Pass unlockRequirement to the footer */}
-                <BadgeFooter
-                  unlocked={badge.unlocked}
-                  unlockedAt={badge.unlockedAt}
-                  xpReward={badge.xpReward}
-                  progressPercentage={progressPercentage}
-                  unlockRequirement={badge.unlockRequirement} // Pass the requirement
-                />
-              </motion.div>
-            );
-          })}
+                  <BadgeFooter
+                    unlocked={badge.unlocked}
+                    unlockedAt={badge.unlockedAt}
+                    xpReward={badge.xpReward || 0}
+                    progressPercentage={progressPercentage}
+                    unlockRequirement={badge.unlockRequirement || null}
+                  />
+                </motion.div>
+              );
+            })
+          )}
         </div>
       </motion.section>
 
-      {/* Achievements Section (Unchanged) */}
+      {/* Achievements Section */}
       <motion.section className="space-y-6" variants={itemVariants}>
         <h2 className="text-3xl font-bold text-purple-500 border-b-2 border-purple-500/50 pb-2">
           🌟 Core Achievements
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {achievements.map((ach, index) => {
-            const IconComponent = getIconComponent(ach.icon);
-            const progressPercentage = Math.min(
-              (ach.progress / ach.requirement) * 100,
-              100
-            );
-            return (
-              <motion.div
-                key={ach.achievementId}
-                className={`bg-white dark:bg-[#121214] rounded-2xl p-6 border border-gray-200 dark:border-white/10 shadow-md cursor-pointer ${
-                  !ach.completed ? "opacity-70" : "opacity-100"
-                }`}
-                initial={{ opacity: 0, x: -50 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.08 }}
-                whileHover={cardHover}
-              >
-                <div className="flex items-start gap-4 mb-3">
-                  <IconComponent
-                    className={`w-8 h-8 flex-shrink-0 ${
-                      ach.completed ? "text-purple-500" : "text-gray-400"
-                    }`}
-                  />
-                  <div>
-                    <h3
-                      className={`text-xl font-bold mb-1 ${
-                        ach.completed
-                          ? "text-gray-900 dark:text-white"
-                          : "text-gray-400"
+          {achievements.length === 0 ? (
+            <p className="text-gray-500">No achievements available</p>
+          ) : (
+            achievements.map((ach, index) => {
+              const IconComponent = getIconComponent(ach.icon);
+              const progressPercentage = Math.min(
+                (ach.progress / ach.requirement) * 100,
+                100
+              );
+              return (
+                <motion.div
+                  key={ach.achievementId}
+                  className={`bg-white dark:bg-[#121214] rounded-2xl p-6 border border-gray-200 dark:border-white/10 shadow-md cursor-pointer ${
+                    !ach.completed ? "opacity-70" : "opacity-100"
+                  }`}
+                  initial={{ opacity: 0, x: -50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.6, delay: index * 0.08 }}
+                  whileHover={cardHover}
+                >
+                  <div className="flex items-start gap-4 mb-3">
+                    <IconComponent
+                      className={`w-8 h-8 flex-shrink-0 ${
+                        ach.completed ? "text-purple-500" : "text-gray-400"
                       }`}
-                    >
-                      {ach.title}
-                    </h3>
-                    <p
-                      className={`text-sm ${
-                        ach.completed
-                          ? "text-gray-500 dark:text-gray-400"
-                          : "text-gray-400"
-                      }`}
-                    >
-                      {ach.description}
-                    </p>
+                    />
+                    <div>
+                      <h3
+                        className={`text-xl font-bold mb-1 ${
+                          ach.completed
+                            ? "text-gray-900 dark:text-white"
+                            : "text-gray-400"
+                        }`}
+                      >
+                        {ach.title || "Unknown Achievement"}
+                      </h3>
+                      <p
+                        className={`text-sm ${
+                          ach.completed
+                            ? "text-gray-500 dark:text-gray-400"
+                            : "text-gray-400"
+                        }`}
+                      >
+                        {ach.description || "No description"}
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                <ProgressBar
-                  progressPercentage={progressPercentage}
-                  unlocked={ach.completed}
-                  progress={ach.progress}
-                  requirement={ach.requirement}
-                  color="purple"
-                />
+                  <ProgressBar
+                    progressPercentage={progressPercentage}
+                    unlocked={ach.completed}
+                    progress={ach.progress || 0}
+                    requirement={ach.requirement || 1}
+                    color="purple"
+                  />
 
-                <BadgeFooter
-                  unlocked={ach.completed}
-                  unlockedAt={ach.completedAt}
-                  xpReward={ach.xpReward}
-                  progressPercentage={progressPercentage}
-                />
-              </motion.div>
-            );
-          })}
+                  <BadgeFooter
+                    unlocked={ach.completed}
+                    unlockedAt={ach.completedAt}
+                    xpReward={ach.xpReward || 0}
+                    progressPercentage={progressPercentage}
+                    unlockRequirement={null}
+                  />
+                </motion.div>
+              );
+            })
+          )}
         </div>
       </motion.section>
 
-      {/* Milestones (Unchanged) */}
+      {/* Milestones */}
       <motion.section className="space-y-6" variants={itemVariants}>
         <h2 className="text-3xl font-bold text-blue-500 border-b-2 border-blue-500/50 pb-2">
           💎 Level Milestones
@@ -689,12 +756,12 @@ export default function Gamification() {
                 )}
                 {milestone.rewards.badgesUnlocked.length > 0 && (
                   <p className="text-sm">
-                    **Badges:** {milestone.rewards.badgesUnlocked.join(", ")}
+                    Badges: {milestone.rewards.badgesUnlocked.join(", ")}
                   </p>
                 )}
                 {milestone.rewards.featuresUnlocked.length > 0 && (
                   <p className="text-sm">
-                    **New Features:**{" "}
+                    New Features:{" "}
                     {milestone.rewards.featuresUnlocked.join(", ")}
                   </p>
                 )}
@@ -710,8 +777,9 @@ export default function Gamification() {
   );
 }
 
-// --- Helper Components (UPDATED) ---
+// --- Helper Components (FIXED) ---
 
+// ✅ FIX: Replace dynamic color classes with a proper color map
 const StatCard = ({
   label,
   value,
@@ -722,20 +790,35 @@ const StatCard = ({
   value: string;
   icon: React.ElementType;
   color: string;
-}) => (
-  <motion.div
-    className="bg-white dark:bg-[#121214] rounded-xl p-4 border border-gray-200 dark:border-white/10 shadow-sm flex flex-col items-start"
-    whileHover={{ scale: 1.02, backgroundColor: "rgba(139, 92, 246, 0.05)" }}
-  >
-    <Icon className={`w-5 h-5 mb-1 text-${color}-500`} />
-    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">
-      {label}
-    </p>
-    <p className={`text-2xl font-extrabold text-${color}-500 mt-0.5`}>
-      {value}
-    </p>
-  </motion.div>
-);
+}) => {
+  // ✅ FIX: Map colors to actual Tailwind classes
+  const colorClasses: { [key: string]: string } = {
+    purple: "text-purple-500",
+    orange: "text-orange-500",
+    green: "text-green-500",
+    blue: "text-blue-500",
+    red: "text-red-500",
+    yellow: "text-yellow-500",
+  };
+
+  const iconClass = colorClasses[color] || colorClasses.purple;
+  const textClass = colorClasses[color] || colorClasses.purple;
+
+  return (
+    <motion.div
+      className="bg-white dark:bg-[#121214] rounded-xl p-4 border border-gray-200 dark:border-white/10 shadow-sm flex flex-col items-start"
+      whileHover={{ scale: 1.02, backgroundColor: "rgba(139, 92, 246, 0.05)" }}
+    >
+      <Icon className={`w-5 h-5 mb-1 ${iconClass}`} />
+      <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">
+        {label}
+      </p>
+      <p className={`text-2xl font-extrabold ${textClass} mt-0.5`}>
+        {value}
+      </p>
+    </motion.div>
+  );
+};
 
 const BadgeTierTag = ({ tier }: { tier: string }) => {
   const tierClasses: { [key: string]: string } = {
@@ -768,34 +851,47 @@ const ProgressBar = ({
   progress: number;
   requirement: number;
   color?: string;
-}) => (
-  <>
-    <p className="text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">
-      Progress: {progress} / {requirement}
-    </p>
-    <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-      <motion.div
-        className={`h-2 rounded-full ${
-          unlocked
-            ? `bg-${color}-500 dark:bg-${color}-400`
-            : "bg-gray-400 dark:bg-gray-500"
-        }`}
-        initial={{ width: 0 }}
-        animate={{ width: `${progressPercentage}%` }}
-        transition={{ duration: 1 }}
-      />
-    </div>
-  </>
-);
+}) => {
+  const colorMap: { [key: string]: string } = {
+    purple: "bg-purple-500 dark:bg-purple-400",
+    orange: "bg-orange-500 dark:bg-orange-400",
+    green: "bg-green-500 dark:bg-green-400",
+    blue: "bg-blue-500 dark:bg-blue-400",
+    red: "bg-red-500 dark:bg-red-400",
+  };
 
-// FIX 3: New component to map the unlock requirement to display text
+  const barColor = colorMap[color] || colorMap.purple;
+
+  return (
+    <>
+      <p className="text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">
+        Progress: {progress} / {requirement}
+      </p>
+      <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+        <motion.div
+          className={`h-2 rounded-full ${
+            unlocked ? barColor : "bg-gray-400 dark:bg-gray-500"
+          }`}
+          initial={{ width: 0 }}
+          animate={{ width: `${progressPercentage}%` }}
+          transition={{ duration: 1 }}
+        />
+      </div>
+    </>
+  );
+};
+
 const UnlockRequirementDisplay = ({
   type,
   value,
 }: {
-  type: Badge["unlockRequirement"]["type"];
-  value: number;
+  type?: string;
+  value?: number;
 }) => {
+  if (!type || !value) {
+    return null;
+  }
+
   let displayValue = value.toString();
   let metric = "";
 
@@ -804,7 +900,6 @@ const UnlockRequirementDisplay = ({
       metric = "Total Sessions";
       break;
     case "totalFocusTime":
-      // Value is in minutes, convert to hours for display if large
       if (value >= 60) {
         displayValue = `${Math.floor(value / 60)} hours`;
       } else {
@@ -831,42 +926,57 @@ const UnlockRequirementDisplay = ({
 
   return (
     <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 mt-2">
-      Unlock Requirement: **{displayValue}** {metric}
+      Unlock Requirement: <strong>{displayValue}</strong> {metric}
     </p>
   );
 };
 
-// FIX 4: Update BadgeFooter to use the new display component
 const BadgeFooter = ({
   unlocked,
   unlockedAt,
   xpReward,
   unlockRequirement,
+  progressPercentage,
 }: {
   unlocked: boolean;
   unlockedAt?: Date;
   xpReward: number;
   progressPercentage: number;
-  unlockRequirement: Badge["unlockRequirement"]; // New prop
+  unlockRequirement?: {
+    type?: string;
+    value?: number;
+  } | null;
 }) => {
+  if (!xpReward && xpReward !== 0) {
+    console.warn("[BadgeFooter] xpReward is undefined");
+    return null;
+  }
+
   if (unlocked) {
     return (
       <p className="text-xs font-medium text-green-500 mt-2">
         ✓ Unlocked
         {unlockedAt &&
           ` • ${new Date(unlockedAt).toLocaleDateString()}`}{" "}
-        • **+{xpReward} XP**
+        • <strong>+{xpReward} XP</strong>
       </p>
     );
   }
+
   return (
     <>
-      <UnlockRequirementDisplay
-        type={unlockRequirement.type}
-        value={unlockRequirement.value}
-      />
+      {unlockRequirement && unlockRequirement.type ? (
+        <UnlockRequirementDisplay
+          type={unlockRequirement.type}
+          value={unlockRequirement.value}
+        />
+      ) : (
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mt-2">
+          Keep working to unlock this!
+        </p>
+      )}
       <p className="text-xs font-medium text-yellow-500 mt-1">
-        Reward: **+{xpReward} XP**
+        Reward: <strong>+{xpReward} XP</strong>
       </p>
     </>
   );

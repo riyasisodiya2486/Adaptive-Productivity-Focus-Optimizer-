@@ -2,7 +2,7 @@ import { timeStamp } from "console";
 import mongoose from "mongoose";
 
 interface IActivityData {
-    keyStrokes: number;
+    keystrokes: number;
     mouseClicks:  number;
     mouseMoves: number;
     scrolls: number;

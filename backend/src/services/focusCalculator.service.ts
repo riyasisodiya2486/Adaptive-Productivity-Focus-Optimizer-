@@ -3,7 +3,6 @@ import { Activity } from "../models/activity.model";
 import { User } from "../models/user.model";
 import { Session } from "../models/session.model";
 
-
 interface FocusScoreResult {
     focusScore: number;
     activityLevel: 'high' | 'low' | 'medium';
@@ -22,15 +21,15 @@ export class FocusCalculator {
 
         const startTime = new Date(Date.now() - timeWindowMinutes * 60 * 1000);
 
-        //get recent activites for this session 
-        const activites = await Activity.find({
+        // Get recent activities for this session
+        const activities = await Activity.find({
             sessionId: new mongoose.Types.ObjectId(sessionId),
             timestamp: {$gte: startTime}
-        }).sort('timestamp')
+        }).sort('timestamp');
 
-        if(activites.length === 0){
+        if(activities.length === 0){
             return{
-                focusScore:0,
+                focusScore: 0,
                 activityLevel: 'low',
                 distractionDetected: true,
                 distractionReasons: ['No activity detected in the time window']
@@ -41,7 +40,7 @@ export class FocusCalculator {
         let totalMouseClicks = 0;
         let totalMouseMoves = 0;
         let totalScrolls = 0;
-        let totalIdleTime = 0 ;
+        let totalIdleTime = 0;
         let distractionAppCount = 0;
         let productiveAppsCount = 0;
         let neutralAppCount = 0;
@@ -53,9 +52,10 @@ export class FocusCalculator {
         let distractionEventsCount = 0;
         let productiveSilentReadingCount = 0;
 
-        //aggregate the activity data
-        activites.forEach((activity) =>{
-            totalKeystrokes += activity.activityData.keyStrokes || 0;
+        // Aggregate the activity data
+        activities.forEach((activity) => {
+            // ✅ FIX: Use lowercase 'keystrokes' to match HardwareTracker output
+            totalKeystrokes += activity.activityData.keystrokes || 0;
             totalMouseClicks += activity.activityData.mouseClicks || 0;
             totalMouseMoves += activity.activityData.mouseMoves || 0;
             totalIdleTime += activity.activityData.idleTime || 0;
@@ -67,15 +67,15 @@ export class FocusCalculator {
 
             let isProductive = false, isDistraction = false, isReadingMode = false;
 
-            //App
-            if(user.whitelistedApps.includes(appName)) isProductive = true;
-            if(user.blacklistedApps.includes(appName)) isDistraction = true;
+            // App categorization
+            if(user.whitelistedApps?.includes(appName)) isProductive = true;
+            if(user.blacklistedApps?.includes(appName)) isDistraction = true;
 
-            //domain/Url
-            if(user.whitelistedUrls.some(wl => url.includes(wl) || domain === wl)) isProductive = true;
-            if(user.blacklistedUrls.some(bl => url.includes(bl) || domain === bl)) isDistraction = true;
+            // Domain/URL categorization
+            if(user.whitelistedUrls?.some(wl => url.includes(wl) || domain === wl)) isProductive = true;
+            if(user.blacklistedUrls?.some(bl => url.includes(bl) || domain === bl)) isDistraction = true;
 
-            //special case: youtube 
+            // Special case: YouTube
             if(domain === 'youtube.com' || domain === 'www.youtube.com'){
                 const youtubeUrl = url.toLowerCase();
                 const isVideoPage = youtubeUrl.includes('/watch?v=');
@@ -84,7 +84,7 @@ export class FocusCalculator {
                 const studyKeywords = ['study', 'tutorial', 'lecture', 'focus', 'music for study', 'coding', 'programming', 'learn'];
                 const containsStudyKeywords = studyKeywords.some(keyword => youtubeUrl.includes(keyword));
 
-                const isWhitelistedYoutube = isVideoPage && (containsStudyKeywords || user.whitelistedUrls.some(wl => youtubeUrl.includes(wl)));
+                const isWhitelistedYoutube = isVideoPage && (containsStudyKeywords || user.whitelistedUrls?.some(wl => youtubeUrl.includes(wl)));
                 if(isWhitelistedYoutube || isPlaylistPage){
                     isProductive = true;
                     isDistraction = false;
@@ -94,8 +94,8 @@ export class FocusCalculator {
                 }
             }
 
-            //Reading mode: no penalty for low activity on reading site/apps
-            const isWhitelistedReadingApp = isProductive && (user.whitelistedApps.includes(appName)) || user.whitelistedUrls.some(wl => url.includes(wl) || domain === wl)
+            // Reading mode: no penalty for low activity on reading site/apps
+            const isWhitelistedReadingApp = isProductive && (user.whitelistedApps?.includes(appName) || user.whitelistedUrls?.some(wl => url.includes(wl) || domain === wl));
             const researchKeywords = [
                 'how to', 'tutorials', 'learn', 'guide', 'documentation', 'wiki', 'study',
                 'course', 'syllabus', 'project', 'problem solving', 'explanation', 'what is', 'example', 'notes'
@@ -105,41 +105,41 @@ export class FocusCalculator {
             const fullPageText = `${url.toLowerCase()} ${pageTitle}`;
             const isResearchIntent = researchKeywords.some(keyword => fullPageText.includes(keyword));
 
-            const isNewResearchSite = !user.whitelistedUrls.some(wl => domain.includes(wl)) &&
+            const isNewResearchSite = !user.whitelistedUrls?.some(wl => domain.includes(wl)) &&
                                        isResearchIntent &&
-                                       !user.blacklistedUrls.some(bl => domain.includes(bl));
+                                       !user.blacklistedUrls?.some(bl => domain.includes(bl));
 
-            const keystrokesPM = activity.activityData.keyStrokes || 0;
-            const mousePM = (activity.activityData.mouseClicks || 0) + ((activity.activityData.mouseMoves || 0)/ 10);
+            const keystrokesPM = activity.activityData.keystrokes || 0;
+            const mousePM = (activity.activityData.mouseClicks || 0) + ((activity.activityData.mouseMoves || 0) / 10);
             const lowActivityButEngaged = keystrokesPM < 5 && totalIdleTime < (timeWindowMinutes * 60 * 0.7);
 
-            //final reading mode check
-            const readingModeDetected = (isWhitelistedReadingApp || isNewResearchSite ||isResearchIntent) && lowActivityButEngaged;
+            // Final reading mode check
+            const readingModeDetected = (isWhitelistedReadingApp || isNewResearchSite || isResearchIntent) && lowActivityButEngaged;
             if(readingModeDetected) {
                 isReadingMode = true;
                 productiveSilentReadingCount++;
                 isProductive = true;
-                isDistraction = false
+                isDistraction = false;
             }
 
             if(isProductive) productiveAppsCount++;
             else if (isDistraction) distractionAppCount++;
             else neutralAppCount++;
 
-            //App switching 
+            // App switching
             if(activity.activeApp?.name && previousApp && activity.activeApp.name !== previousApp){
                 if(
-                    user.whitelistedApps.includes(activity.activeApp.name) &&
-                    user.whitelistedApps.includes(previousApp)
+                    user.whitelistedApps?.includes(activity.activeApp.name) &&
+                    user.whitelistedApps?.includes(previousApp)
                 ){
-                    appSwitchCount +=0.5
+                    appSwitchCount += 0.5;
                 }else{
                     appSwitchCount++;
                 }
             }
             previousApp = activity.activeApp?.name || '';
 
-            //eye tracking data
+            // Eye tracking data
             if(activity.eyeTracking?.enabled){
                 eyeTrackingEnabledCount++;
                 avgBlinkrate += activity.eyeTracking.blinkRate || 0;
@@ -148,32 +148,32 @@ export class FocusCalculator {
                 }
             }
 
-            //distraction events
+            // Distraction events
             if(activity.distractionDetected && activity.distractionDetected.length > 0){
-                const serverity = activity.distractionDetected.reduce((acc: number, d: string)=>{
+                const severity = activity.distractionDetected.reduce((acc: number, d: string) => {
                     const lower = d.toLowerCase();
-                    if(lower.includes('popup')|| lower.includes('notification')) return acc + 1;
-                    if(lower.includes('social')|| lower.includes('entertainment')) return acc + 3;
+                    if(lower.includes('popup') || lower.includes('notification')) return acc + 1;
+                    if(lower.includes('social') || lower.includes('entertainment')) return acc + 3;
                     return acc + 2;
                 }, 0);
-                distractionEventsCount += serverity;
+                distractionEventsCount += severity;
             }
         });
 
-        const activityCount = activites.length;
+        const activityCount = activities.length;
         if(eyeTrackingEnabledCount > 0){
             avgBlinkrate = avgBlinkrate / eyeTrackingEnabledCount;
         }
 
-        // ----FOCUS SCORE CALCULATION(0-100)---
+        // ----FOCUS SCORE CALCULATION (0-100)----
         let focusScore = 50;
         let distractionReasons: string[] = [];
         
-        //1. keyboard activity(0-25 points)
-        const keystrokesPerMinute = totalKeystrokes/ timeWindowMinutes;
+        // 1. Keyboard activity (0-25 points)
+        const keystrokesPerMinute = totalKeystrokes / timeWindowMinutes;
         const mouseActivityPerMinute = (totalMouseClicks + (totalMouseMoves / 10)) / timeWindowMinutes;
 
-        //Reading mode
+        // Reading mode
         if(productiveSilentReadingCount > 0){
             focusScore += 15;
         }else{
@@ -185,58 +185,60 @@ export class FocusCalculator {
             } else if(keystrokesPerMinute > 20) {
                 focusScore += 10;
             } else if(keystrokesPerMinute > 10){
-                focusScore +=5;
+                focusScore += 5;
             } else{
                 distractionReasons.push('low keyboard activity');
             }
             
-            //Mouse
+            // Mouse
             if(mouseActivityPerMinute > 30){
                 focusScore += 10;
             } else if(mouseActivityPerMinute > 15){
-                focusScore += 5
-            } else if( mouseActivityPerMinute < 3) {
+                focusScore += 5;
+            } else if(mouseActivityPerMinute < 3) {
                 distractionReasons.push('very low mouse activity');
             }
         }
 
-                
-        // idle time penalty(0  to -20 points)
+        // Idle time penalty (0 to -20 points)
         const totalTimeSeconds = timeWindowMinutes * 60;
         const isActiveReading = productiveSilentReadingCount > 0;
-        const isVisuallyFocused = eyeTrackingEnabledCount > 0 && (focusedOnScreenCount/eyeTrackingEnabledCount) > 0.7;
+        const isVisuallyFocused = eyeTrackingEnabledCount > 0 && (focusedOnScreenCount / eyeTrackingEnabledCount) > 0.7;
 
+        let adjustedIdleTime = totalIdleTime;
         if(isActiveReading || isVisuallyFocused){
-            totalIdleTime *= 0.5;
+            adjustedIdleTime *= 0.5;
         }
 
-        const idlePercentage = (totalIdleTime/totalTimeSeconds) * 100;
-        if(!productiveSilentReadingCount){
+        const idlePercentage = (adjustedIdleTime / totalTimeSeconds) * 100;
+        
+        // ✅ FIX: Corrected logic - apply penalty if NOT in reading mode
+        if(productiveSilentReadingCount === 0){  // if NOT in reading mode
             if(idlePercentage > 60){
                 focusScore -= 20;
                 distractionReasons.push('excessive idle time (>60%)');
             } else if(idlePercentage > 40){
                 focusScore -= 15;
-                distractionReasons.push('high idle time')
+                distractionReasons.push('high idle time');
             } else if(idlePercentage > 25) {
                 focusScore -= 8;
             }
         }
 
-        // app switching penalty (0 to -15 points)
-        const swtichesPerMinute = appSwitchCount /  timeWindowMinutes;
-        if(swtichesPerMinute > 3){
+        // App switching penalty (0 to -15 points)
+        const switchesPerMinute = appSwitchCount / timeWindowMinutes;
+        if(switchesPerMinute > 3){
             focusScore -= 15;
             distractionReasons.push('Frequent app switching');
-        } else if(swtichesPerMinute > 2) {
+        } else if(switchesPerMinute > 2) {
             focusScore -= 10;
-            distractionReasons.push('moderate app switching')
-        } else if(swtichesPerMinute > 1){
+            distractionReasons.push('moderate app switching');
+        } else if(switchesPerMinute > 1){
             focusScore -= 5;
         }
 
-        // distraction apps Penalty(0 to -25 points)
-        const distractionPercentage = (distractionAppCount/activityCount) * 100;
+        // Distraction apps penalty (0 to -25 points)
+        const distractionPercentage = (distractionAppCount / activityCount) * 100;
         if(distractionPercentage > 40) {
             focusScore -= 25;
             distractionReasons.push('High usage of distracting app/sites');
@@ -245,36 +247,36 @@ export class FocusCalculator {
             focusScore -= 8;
         }
 
-        const productivePercentage = (productiveAppsCount/ activityCount) *100;
+        const productivePercentage = (productiveAppsCount / activityCount) * 100;
         if(productivePercentage > 70) focusScore += 15;
         else if(productivePercentage > 50) focusScore += 10;
-        else if(productivePercentage > 30) focusScore +=5;
+        else if(productivePercentage > 30) focusScore += 5;
 
-        //Eye tracking
+        // Eye tracking
         if(eyeTrackingEnabledCount > 0){
-            const focusedPercentage = (focusedOnScreenCount/ eyeTrackingEnabledCount) * 100;
-            if(focusedPercentage > 80) focusScore +=10;
-            else if(focusedPercentage > 60) focusScore +=5;
+            const focusedPercentage = (focusedOnScreenCount / eyeTrackingEnabledCount) * 100;
+            if(focusedPercentage > 80) focusScore += 10;
+            else if(focusedPercentage > 60) focusScore += 5;
             else if(focusedPercentage < 40) {
-                focusScore -=5;
+                focusScore -= 5;
                 distractionReasons.push('low screen focus detected');
             }
 
-            if(avgBlinkrate<10 && avgBlinkrate > 0) distractionReasons.push('low blink rate - possible eye strain');
+            if(avgBlinkrate < 10 && avgBlinkrate > 0) distractionReasons.push('low blink rate - possible eye strain');
             else if(avgBlinkrate > 30) distractionReasons.push('high blink rate - possible fatigue');
         }
 
         // Detected distraction events
-        if(distractionEventsCount>0){
-            const distractionEventPercentage = (distractionEventsCount/activityCount) * 100;
+        if(distractionEventsCount > 0){
+            const distractionEventPercentage = (distractionEventsCount / activityCount) * 100;
             if(distractionEventPercentage > 20) focusScore -= 10;
-            else if(distractionEventPercentage>10) focusScore -=5;
+            else if(distractionEventPercentage > 10) focusScore -= 5;
         }
 
         focusScore = Math.max(0, Math.min(100, focusScore));
         let activityLevel: 'high' | 'medium' | 'low';
-        if (focusScore>=70) activityLevel = 'high';
-        else if (focusScore>=40) activityLevel = 'medium';
+        if (focusScore >= 70) activityLevel = 'high';
+        else if (focusScore >= 40) activityLevel = 'medium';
         else activityLevel = 'low';
 
         // Remove interaction distraction reasons for reading mode
@@ -282,7 +284,7 @@ export class FocusCalculator {
             distractionReasons = distractionReasons.filter(r =>
                 !/low keyboard activity/i.test(r) &&
                 !/very low mouse activity/i.test(r)
-            )
+            );
         }
 
         return{
@@ -290,7 +292,7 @@ export class FocusCalculator {
             activityLevel,
             distractionDetected: distractionReasons.length > 0,
             distractionReasons
-        }
+        };
     }
 
     // Update session statistics at the end of the session
@@ -305,9 +307,10 @@ export class FocusCalculator {
 
         if (activities.length === 0){
             console.log(`No activities found for session ${sessionId}`);
+            return;
         }
 
-        //Intialize aggregation variables
+        // Initialize aggregation variables
         let totalKeystrokes = 0;
         let totalMouseActivity = 0;
         let totalIdleTime = 0;
@@ -315,9 +318,10 @@ export class FocusCalculator {
         const productiveApps = new Set<string>();
         const distractingApps = new Set<string>();
 
-        //aggregate data from activities
+        // Aggregate data from activities
         activities.forEach(activity => {
-            totalKeystrokes += activity.activityData.keyStrokes || 0;
+            // ✅ FIX: Use lowercase 'keystrokes'
+            totalKeystrokes += activity.activityData.keystrokes || 0;
             totalMouseActivity += (activity.activityData.mouseClicks || 0) + (activity.activityData.mouseMoves || 0);
             totalIdleTime += activity.activityData.idleTime || 0;
 
@@ -327,7 +331,7 @@ export class FocusCalculator {
 
             if(activity.activeApp?.name) {
                 if(activity.activeApp.category === 'productive'){
-                    productiveApps.add(activity.activeApp.name)
+                    productiveApps.add(activity.activeApp.name);
                 } else if (activity.activeApp.category === 'distraction'){
                     distractingApps.add(activity.activeApp.name);
                 }
@@ -335,13 +339,14 @@ export class FocusCalculator {
         });
 
         // Calculate focus statistics from timeline
-        if(session.focusTimeline.length > 0){
+        if(session.focusTimeline && session.focusTimeline.length > 0){
             const focusScores = session.focusTimeline.map(entry => entry.focusScore);
-            const avgFocusScore = focusScores.reduce((a,b) => a+b, 0);
+            // ✅ FIX: Divide by length to get average
+            const avgFocusScore = focusScores.reduce((a, b) => a + b, 0) / focusScores.length;
             const peakFocusScore = Math.max(...focusScores);
             const lowestFocusScore = Math.min(...focusScores);
 
-            //calculate focus time vs distraction time
+            // Calculate focus time vs distraction time
             let totalFocusTime = 0;
             let totalDistractionTime = 0;
             const intervalMinutes = 5;
@@ -350,16 +355,16 @@ export class FocusCalculator {
                 if(entry.activityLevel === 'high'){
                     totalFocusTime += intervalMinutes * 60;
                 } else if (entry.activityLevel === 'low'){
-                    totalDistractionTime += intervalMinutes * 60
+                    totalDistractionTime += intervalMinutes * 60;
                 }
             });
 
-            //convert to minutes
+            // Convert to minutes
             totalFocusTime = Math.round(totalFocusTime / 60);
             totalDistractionTime = Math.round(totalDistractionTime / 60);
             totalIdleTime = Math.round(totalIdleTime / 60);
 
-            //update session statistics
+            // Update session statistics
             session.statistics = {
                 averageFocusScore: Math.round(avgFocusScore),
                 peakFocusScore: peakFocusScore,
@@ -375,21 +380,20 @@ export class FocusCalculator {
             };
 
             await session.save();
-            console.log(`updated stats for session ${sessionId}`)
+            console.log(`updated stats for session ${sessionId}`);
         }
     }
 
     static async getFocusTrend(sessionId: string){
         const session = await Session.findById(sessionId);
         if(!session){
-            throw new Error('session not found')
+            throw new Error('session not found');
         }
 
         return session.focusTimeline.map(entry => ({
             timestamp: entry.timestamp,
             focusScore: entry.focusScore,
             activityLevel: entry.activityLevel
-        }))
+        }));
     }
-
 }

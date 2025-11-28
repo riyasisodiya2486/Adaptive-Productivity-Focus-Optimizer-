@@ -129,38 +129,250 @@ export const getAppUsageForSession = async (req: Request, res: Response) => {
       return res.status(400).json({ msg: "Session ID is required" });
     }
 
-    // Determine the logging interval (in seconds)
-    const samplingInterval = 5; 
+    console.log(`[App Usage] 📊 Calculating app usage for session: ${sessionId}`);
 
-    // Get per-app usage for this session
-    const usage = await Activity.aggregate([
-      { $match: { userId: new mongoose.Types.ObjectId(userId), sessionId: new mongoose.Types.ObjectId(sessionId) } },
-      { $sort: { timestamp: 1 } },
-      {
-        $group: {
-          _id: "$activeApp.name",
-          title: { $first: "$activeApp.title" },
-          category: { $first: "$activeApp.category" },
-          intervals: { $sum: 1 },
-        }
+    // ✅ FIX 1: Get all activities with timestamps sorted in order
+    const activities = await Activity.find(
+      { 
+        userId: new mongoose.Types.ObjectId(userId), 
+        sessionId: new mongoose.Types.ObjectId(sessionId) 
       },
-      { $sort: { intervals: -1 } }
-    ]);
+      { activeApp: 1, timestamp: 1 }
+    ).sort({ timestamp: 1 }).lean();
 
-    // Format response: time in seconds and minutes
-    const results = usage.map(u => ({
-      name: u._id,
-      title: u.title,
-      category: u.category,
-      intervals: u.intervals,
-      seconds: u.intervals * samplingInterval,
-      minutes: (u.intervals * samplingInterval) / 60,
-    }));
+    console.log(`[App Usage] 📈 Found ${activities.length} activity records`);
 
-    return res.json({ sessionId, appUsage: results });
+    if (activities.length === 0) {
+      return res.json({ 
+        sessionId, 
+        appUsage: [],
+        totalSessionTime: 0,
+        note: "No activity records found for this session"
+      });
+    }
+
+    // ✅ FIX 2: Calculate time between consecutive records
+    const appTimeMap = new Map<string, {
+      name: string;
+      title?: string;
+      category?: string;
+      totalSeconds: number;
+      recordCount: number;
+    }>();
+
+    // Track consecutive activities for same app
+    for (let i = 0; i < activities.length - 1; i++) {
+      const current = activities[i];
+      const next = activities[i + 1];
+      
+      // Skip if no active app
+      if (!current.activeApp?.name) {
+        console.warn(`[App Usage] ⚠️ Activity ${i} has no activeApp`);
+        continue;
+      }
+
+      const appName = current.activeApp.name;
+      
+      // Calculate time difference between consecutive records
+      const currentTime = new Date(current.timestamp).getTime();
+      const nextTime = new Date(next.timestamp).getTime();
+      const timeDiffMs = nextTime - currentTime;
+      const timeDiffSeconds = timeDiffMs / 1000;
+
+      // ✅ FIX 3: Filter out unrealistic gaps (> 1 minute = app probably became inactive)
+      const MAX_GAP_SECONDS = 60;
+      const effectiveTime = timeDiffSeconds > MAX_GAP_SECONDS ? MAX_GAP_SECONDS : timeDiffSeconds;
+
+      // Accumulate time for this app
+      if (!appTimeMap.has(appName)) {
+        appTimeMap.set(appName, {
+          name: appName,
+          title: current.activeApp.title,
+          category: current.activeApp.category,
+          totalSeconds: 0,
+          recordCount: 0,
+        });
+      }
+
+      const appData = appTimeMap.get(appName)!;
+      appData.totalSeconds += effectiveTime;
+      appData.recordCount += 1;
+    }
+
+    // ✅ FIX 4: Add final interval (from last record to now or session end)
+    const lastActivity = activities[activities.length - 1];
+    if (lastActivity?.activeApp?.name) {
+      const lastActivityTime = new Date(lastActivity.timestamp).getTime();
+      const now = Date.now();
+      const finalIntervalMs = now - lastActivityTime;
+      const finalIntervalSeconds = Math.min(finalIntervalMs / 1000, 60); // Cap at 60s
+
+      if (!appTimeMap.has(lastActivity.activeApp.name)) {
+        appTimeMap.set(lastActivity.activeApp.name, {
+          name: lastActivity.activeApp.name,
+          title: lastActivity.activeApp.title,
+          category: lastActivity.activeApp.category,
+          totalSeconds: 0,
+          recordCount: 0,
+        });
+      }
+
+      const appData = appTimeMap.get(lastActivity.activeApp.name)!;
+      appData.totalSeconds += finalIntervalSeconds;
+    }
+
+    // ✅ FIX 5: Convert to sorted results
+    const results = Array.from(appTimeMap.values())
+      .map(app => ({
+        name: app.name,
+        title: app.title || "Unknown",
+        category: app.category || "Other",
+        recordCount: app.recordCount,
+        seconds: Math.round(app.totalSeconds),
+        minutes: Number((app.totalSeconds / 60).toFixed(2)),
+        hours: Number((app.totalSeconds / 3600).toFixed(2)),
+        percentage: 0, // Will calculate after
+      }))
+      .sort((a, b) => b.seconds - a.seconds);
+
+    // Calculate percentages
+    const totalSeconds = results.reduce((sum, app) => sum + app.seconds, 0);
+    results.forEach(app => {
+      app.percentage = totalSeconds > 0 
+        ? Number(((app.seconds / totalSeconds) * 100).toFixed(2))
+        : 0;
+    });
+
+    console.log(`[App Usage] ✅ Calculated usage for ${results.length} apps`);
+    console.log(`[App Usage] 📊 Total session time: ${totalSeconds}s = ${(totalSeconds / 60).toFixed(2)}m`);
+
+    return res.json({ 
+      sessionId, 
+      appUsage: results,
+      totalSessionTime: {
+        seconds: totalSeconds,
+        minutes: Number((totalSeconds / 60).toFixed(2)),
+        hours: Number((totalSeconds / 3600).toFixed(2)),
+      },
+      recordsAnalyzed: activities.length,
+    });
   } catch (err) {
-    console.error("Error computing app usage:", err);
-    return res.status(500).json({ msg: "server error" });
+    console.error("[App Usage] ❌ Error computing app usage:", err);
+    return res.status(500).json({ msg: "Failed to compute app usage" });
+  }
+};
+
+export const getAppUsageForSessionAdvanced = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const { sessionId } = req.params;
+    if (!sessionId) {
+      return res.status(400).json({ msg: "Session ID is required" });
+    }
+
+    console.log(`[App Usage Advanced] 📊 Calculating detailed app usage for session: ${sessionId}`);
+
+    // Get session start and end time
+    const session = await (require("./session.model") as any).Session.findById(sessionId)
+      .select("startTime endTime duration")
+      .lean();
+
+    if (!session) {
+      return res.status(404).json({ msg: "Session not found" });
+    }
+
+    // Get all activities
+    const activities = await Activity.find(
+      { 
+        userId: new mongoose.Types.ObjectId(userId), 
+        sessionId: new mongoose.Types.ObjectId(sessionId) 
+      },
+      { activeApp: 1, timestamp: 1 }
+    ).sort({ timestamp: 1 }).lean();
+
+    console.log(`[App Usage Advanced] 📈 Found ${activities.length} activity records`);
+
+    const appTimeMap = new Map<string, any>();
+    
+    const MAX_GAP_SECONDS = 60;
+
+    // Calculate time between consecutive records
+    for (let i = 0; i < activities.length - 1; i++) {
+      const current = activities[i];
+      const next = activities[i + 1];
+
+      if (!current.activeApp?.name) continue;
+
+      const appName = current.activeApp.name;
+      const timeDiffSeconds = (new Date(next.timestamp).getTime() - new Date(current.timestamp).getTime()) / 1000;
+      const effectiveTime = Math.min(timeDiffSeconds, MAX_GAP_SECONDS);
+
+      if (!appTimeMap.has(appName)) {
+        appTimeMap.set(appName, {
+          name: appName,
+          title: current.activeApp.title || "Unknown",
+          category: current.activeApp.category || "Other",
+          totalSeconds: 0,
+          intervals: 0,
+          firstSeen: current.timestamp,
+          lastSeen: current.timestamp,
+        });
+      }
+
+      const data = appTimeMap.get(appName);
+      data.totalSeconds += effectiveTime;
+      data.intervals += 1;
+      data.lastSeen = next.timestamp;
+    }
+
+    // Format results
+    const results = Array.from(appTimeMap.values())
+      .map(app => ({
+        name: app.name,
+        title: app.title,
+        category: app.category,
+        intervals: app.intervals,
+        seconds: Math.round(app.totalSeconds),
+        minutes: Number((app.totalSeconds / 60).toFixed(2)),
+        hours: Number((app.totalSeconds / 3600).toFixed(2)),
+        percentage: 0,
+        firstSeen: app.firstSeen,
+        lastSeen: app.lastSeen,
+      }))
+      .sort((a, b) => b.seconds - a.seconds);
+
+    // Calculate percentages based on session duration
+    const sessionDurationSeconds = session.duration || (session.endTime - session.startTime) / 1000;
+    results.forEach(app => {
+      app.percentage = sessionDurationSeconds > 0 
+        ? Number(((app.seconds / sessionDurationSeconds) * 100).toFixed(2))
+        : 0;
+    });
+
+    const totalTrackedSeconds = results.reduce((sum, app) => sum + app.seconds, 0);
+
+    console.log(`[App Usage Advanced] ✅ Session duration: ${sessionDurationSeconds}s, Tracked: ${totalTrackedSeconds}s`);
+
+    return res.json({
+      sessionId,
+      sessionInfo: {
+        startTime: session.startTime,
+        endTime: session.endTime,
+        durationSeconds: sessionDurationSeconds,
+        durationMinutes: Number((sessionDurationSeconds / 60).toFixed(2)),
+      },
+      appUsage: results,
+      summary: {
+        totalTrackedSeconds,
+        totalTrackedMinutes: Number((totalTrackedSeconds / 60).toFixed(2)),
+        untrackedSeconds: sessionDurationSeconds - totalTrackedSeconds,
+        untrackedPercentage: Number((((sessionDurationSeconds - totalTrackedSeconds) / sessionDurationSeconds) * 100).toFixed(2)),
+      },
+      recordsAnalyzed: activities.length,
+    });
+  } catch (err) {
+    console.error("[App Usage Advanced] ❌ Error:", err);
+    return res.status(500).json({ msg: "Failed to compute advanced app usage" });
   }
 };
 
@@ -438,7 +650,6 @@ export const getActivityTimeline = async(req:Request, res:Response) =>{
         });
     }
 }
-
 
 export const getActivityByDateRange = async (req: Request, res: Response) => {
     try {
