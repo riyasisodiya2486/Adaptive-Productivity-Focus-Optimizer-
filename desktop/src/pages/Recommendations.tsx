@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, createContext, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   RefreshCcw,
@@ -15,7 +15,7 @@ import {
 import axios from "axios";
 import { BACKEND_URL } from "./config";
 
-
+// --- Types ---
 type Recommendation = {
   _id: string;
   recommendation: string;
@@ -29,7 +29,7 @@ type Recommendation = {
   timestamp: string;
   priority: "low" | "medium" | "high";
   completed?: boolean;
-  isNew?: boolean; // Track if recommendation is new
+  isNew?: boolean;
 };
 
 type Toast = {
@@ -41,7 +41,38 @@ type Toast = {
 
 const API_BASE = BACKEND_URL + "/recommendations";
 
-// ✅ Toast Notification Component
+// --- Context ---
+type NotificationContextType = {
+  addToast: (message: string, type: "success" | "info" | "warning" | "error", recommendation?: Recommendation) => void;
+  toasts: Toast[];
+  removeToast: (id: string) => void;
+  setPopupRec: (rec: Recommendation | null) => void;
+  popupRec: Recommendation | null;
+};
+
+export const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+
+// ✅ SAFE HOOK: Uses context if available, or throws specific error
+export const useNotification = () => {
+  const context = useContext(NotificationContext);
+  // If we are outside a provider, we can't use global notifications easily.
+  // However, to prevent crash, we can return a dummy or throw a clear error.
+  // For this fix, we'll assume the component is wrapped. 
+  if (!context) {
+    console.warn("useNotification used outside NotificationProvider! Notifications won't appear.");
+    return {
+      addToast: () => {}, 
+      toasts: [], 
+      removeToast: () => {}, 
+      setPopupRec: () => {}, 
+      popupRec: null
+    };
+  }
+  return context;
+};
+
+// --- Components ---
+
 const ToastNotification: React.FC<{
   toast: Toast;
   onDismiss: (id: string) => void;
@@ -92,7 +123,7 @@ const ToastNotification: React.FC<{
       animate={{ opacity: 1, y: 0, x: 0 }}
       exit={{ opacity: 0, y: -20, x: 400 }}
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      className={`${bgColor} ${borderColor} border rounded-lg shadow-lg p-4 flex items-start gap-3 mb-3 max-w-md`}
+      className={`${bgColor} ${borderColor} border rounded-lg shadow-lg p-4 flex items-start gap-3 mb-3 max-w-md pointer-events-auto`}
     >
       <Icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${iconColor}`} />
       <div className="flex-1">
@@ -103,17 +134,13 @@ const ToastNotification: React.FC<{
           </p>
         )}
       </div>
-      <button
-        onClick={() => onDismiss(toast.id)}
-        className={`${textColor} hover:opacity-70 transition`}
-      >
+      <button onClick={() => onDismiss(toast.id)} className={`${textColor} hover:opacity-70 transition`}>
         <X className="w-4 h-4" />
       </button>
     </motion.div>
   );
 };
 
-// ✅ Popup Alert for High Priority Recommendations
 const PopupAlert: React.FC<{
   recommendation: Recommendation;
   onClose: () => void;
@@ -123,7 +150,7 @@ const PopupAlert: React.FC<{
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 pointer-events-auto"
       onClick={onClose}
     >
       <motion.div
@@ -134,7 +161,6 @@ const PopupAlert: React.FC<{
         onClick={(e) => e.stopPropagation()}
         className="bg-white dark:bg-[#121214] rounded-2xl shadow-2xl max-w-md w-full p-6 border border-purple-200 dark:border-purple-500/30"
       >
-        {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
             <motion.div
@@ -153,57 +179,38 @@ const PopupAlert: React.FC<{
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
         <div className="mb-6">
           <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm">
             {recommendation.recommendation}
           </p>
-
-          {/* Context Info */}
           {recommendation.context && (
             <div className="mt-4 p-3 bg-gray-50 dark:bg-[#1a1a1d] rounded-lg space-y-2">
               {recommendation.context.focusScore !== undefined && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                    Focus Score:
-                  </span>
-                  <span className="text-xs text-purple-600 dark:text-purple-400 font-semibold">
-                    {recommendation.context.focusScore}%
-                  </span>
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Focus Score:</span>
+                  <span className="text-xs text-purple-600 dark:text-purple-400 font-semibold">{recommendation.context.focusScore}%</span>
                 </div>
               )}
               {recommendation.context.sessionDuration && (
                 <div className="flex items-center gap-2">
                   <Clock className="w-3 h-3 text-gray-500" />
-                  <span className="text-xs text-gray-600 dark:text-gray-400">
-                    Session: {Math.floor(recommendation.context.sessionDuration / 60)} min
-                  </span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400">Session: {Math.floor(recommendation.context.sessionDuration / 60)} min</span>
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Action Buttons */}
         <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800 transition font-medium text-sm"
-          >
+          <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800 transition font-medium text-sm">
             Later
           </button>
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-purple-500 text-white hover:opacity-90 transition font-medium text-sm"
-          >
+          <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-purple-500 text-white hover:opacity-90 transition font-medium text-sm">
             Got It
           </button>
         </div>
@@ -212,71 +219,79 @@ const PopupAlert: React.FC<{
   );
 };
 
-const Recommendations: React.FC = () => {
+// ✅ Provider
+export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [popupRec, setPopupRec] = useState<Recommendation | null>(null);
+
+  const addToast = useCallback((message: string, type: "success" | "info" | "warning" | "error", recommendation?: Recommendation) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, message, type, recommendation }]);
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  return (
+    <NotificationContext.Provider value={{ addToast, toasts, removeToast, setPopupRec, popupRec }}>
+      <div className="fixed top-6 right-6 z-[9999] space-y-2 pointer-events-none">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <ToastNotification key={toast.id} toast={toast} onDismiss={removeToast} />
+          ))}
+        </AnimatePresence>
+      </div>
+      <AnimatePresence>
+        {popupRec && <PopupAlert recommendation={popupRec} onClose={() => setPopupRec(null)} />}
+      </AnimatePresence>
+      {children}
+    </NotificationContext.Provider>
+  );
+};
+
+// --- Internal Recommendation Page Component ---
+const RecommendationsContent: React.FC = () => {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const [popupRec, setPopupRec] = useState<Recommendation | null>(null);
-
+  
+  // This is safe now because if context is missing, useNotification returns dummy functions
+  const { addToast, setPopupRec } = useNotification();
 
   const getJwtToken = () => localStorage.getItem("token") || "";
 
-
-  // ✅ NEW: Add toast notification
-  const addToast = (message: string, type: "success" | "info" | "warning" | "error", recommendation?: Recommendation) => {
-    const id = Date.now().toString();
-    setToasts(prev => [...prev, { id, message, type, recommendation }]);
-  };
-
-  // ✅ NEW: Remove toast
-  const removeToast = (id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
-
-
-  // Parse markdown-style text to React elements
   const parseRecommendationText = (text: string) => {
     let cleaned = text.trim();
     cleaned = cleaned.replace(/^\*\*"?(.*?)"?\*\*$/g, '$1');
     cleaned = cleaned.replace(/^\*\*(.*?)\*\*$/g, '$1');
-    
     const lines = cleaned.split('\n').filter(line => line.trim());
     
     return lines.map((line, idx) => {
       let processedLine = line.trim().replace(/^[✨🎯💡⚡🔥]+\s*/g, '');
       processedLine = processedLine.replace(/^\*\*"?(.*?)"?\*\*$/g, '$1');
       processedLine = processedLine.replace(/^\*\*(.*?)\*\*$/g, '$1');
-      
       const parts = processedLine.split(/(\*\*.*?\*\*)/g);
       
       return (
-        <p key={idx} className={idx > 0 ? "mt-2" : ""}>
+        <p key={`text-${idx}`} className={idx > 0 ? "mt-2" : ""}>
           {parts.map((part, i) => {
             if (part.startsWith('**') && part.endsWith('**')) {
-              return <strong key={i} className="font-semibold text-purple-600 dark:text-purple-400">{part.slice(2, -2)}</strong>;
+              return <strong key={`bold-${i}`} className="font-semibold text-purple-600 dark:text-purple-400">{part.slice(2, -2)}</strong>;
             }
-            return <span key={i}>{part}</span>;
+            return <span key={`span-${i}`}>{part}</span>;
           })}
         </p>
       );
     });
   };
 
-
   const getPreviewText = (text: string, maxLength: number = 60) => {
-    let cleaned = text.trim()
-      .replace(/\*\*/g, '')
-      .replace(/[✨🎯💡⚡🔥]/g, '')
-      .replace(/^["']|["']$/g, '');
-    
-    if (cleaned.length > maxLength) {
-      return cleaned.slice(0, maxLength) + '...';
-    }
+    let cleaned = text.trim().replace(/\*\*/g, '').replace(/[✨🎯💡⚡🔥]/g, '').replace(/^["']|["']$/g, '');
+    if (cleaned.length > maxLength) return cleaned.slice(0, maxLength) + '...';
     return cleaned;
   };
-
 
   const fetchRecommendations = useCallback(async () => {
     setLoading(true);
@@ -286,84 +301,55 @@ const Recommendations: React.FC = () => {
       const res = await axios.get(`${API_BASE}/history`, {
         headers: { Authorization: `Bearer ${jwt}` },
       });
-      console.log('📊 Recommendations received:', res.data.history);
       
       if (res.data?.history) {
         const newRecs = res.data.history;
-        
-        // ✅ FIX: Detect NEW recommendations
         setRecommendations(prev => {
           const prevIds = new Set(prev.map(r => r._id));
-          
           newRecs.forEach((rec: Recommendation) => {
             if (!prevIds.has(rec._id)) {
-              console.log('🆕 New recommendation detected:', rec._id);
-              
-              // ✅ Show toast for ALL new recommendations
-              addToast(
-                `🎯 New ${rec.type} recommendation!`,
-                rec.priority === 'high' ? 'warning' : 'info',
-                rec
-              );
-              
-              // ✅ Show popup for HIGH priority recommendations
-              if (rec.priority === 'high') {
-                console.log('🚨 HIGH priority - showing popup');
-                setPopupRec(rec);
-              }
+              // Use safe addToast
+              addToast(`🎯 New ${rec.type} recommendation!`, rec.priority === 'high' ? 'warning' : 'info', rec);
+              if (rec.priority === 'high') setPopupRec(rec);
             }
           });
-          
           return newRecs;
         });
       } else {
         setRecommendations([]);
       }
     } catch (err: any) {
-      console.error("❌ Failed to fetch recommendations:", err);
       setRecommendations([]);
       setError("Failed to load recommendations.");
       addToast("Failed to load recommendations", "error");
     } finally {
       setLoading(false);
     }
-  }, []);
-
+  }, [addToast, setPopupRec]);
 
   useEffect(() => {
     fetchRecommendations();
-    // ✅ Poll for new recommendations every 30 seconds
     const intervalId = setInterval(fetchRecommendations, 30000);
     return () => clearInterval(intervalId);
   }, [fetchRecommendations]);
 
-
-  const toggleExpand = (id: string) => {
-    setExpandedId(expandedId === id ? null : id);
-  };
-
+  const toggleExpand = (id: string) => setExpandedId(expandedId === id ? null : id);
 
   const handleRemove = (id: string) => {
     setRecommendations((prev) => prev.filter((r) => r._id !== id));
     addToast("Recommendation removed", "success");
   };
 
-
   const handleComplete = (id: string) => {
-    setRecommendations((prev) =>
-      prev.map((r) => (r._id === id ? { ...r, completed: true } : r))
-    );
+    setRecommendations((prev) => prev.map((r) => (r._id === id ? { ...r, completed: true } : r)));
     addToast("✅ Great job! Recommendation marked complete", "success");
   };
-
 
   const formatTime = (ts: string) => {
     try {
       const date = new Date(ts);
       const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      const diffMins = Math.floor(diffMs / 60000);
-      
+      const diffMins = Math.floor((now.getTime() - date.getTime()) / 60000);
       if (diffMins < 1) return 'Just now';
       if (diffMins < 60) return `${diffMins}m ago`;
       if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
@@ -373,93 +359,38 @@ const Recommendations: React.FC = () => {
     }
   };
 
-
   const getPriorityBadge = (priority: string) => {
     switch(priority) {
-      case 'high':
-        return <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">High Priority</span>;
-      case 'medium':
-        return <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400">Medium</span>;
-      case 'low':
-        return <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">Low</span>;
-      default:
-        return null;
+      case 'high': return <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">High Priority</span>;
+      case 'medium': return <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400">Medium</span>;
+      case 'low': return <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">Low</span>;
+      default: return null;
     }
   };
 
-
   return (
     <div className="flex flex-col min-h-screen transition-colors duration-300 bg-gray-50 dark:bg-[#0B0B0F] text-gray-900 dark:text-gray-100">
-      {/* ✅ Toast Container */}
-      <div className="fixed top-6 right-6 z-40 space-y-2">
-        <AnimatePresence>
-          {toasts.map(toast => (
-            <ToastNotification
-              key={toast.id}
-              toast={toast}
-              onDismiss={removeToast}
-            />
-          ))}
-        </AnimatePresence>
-      </div>
-
-      {/* ✅ Popup Alert for High Priority */}
-      <AnimatePresence>
-        {popupRec && (
-          <PopupAlert
-            recommendation={popupRec}
-            onClose={() => setPopupRec(null)}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Header */}
       <header className="px-10 py-6 border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-purple-300 bg-clip-text text-transparent">
-            AI Recommendations
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Personalized suggestions to improve your focus and productivity.
-          </p>
-          {error && (
-            <p className="text-red-500 text-sm mt-2 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" />
-              {error}
-            </p>
-          )}
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-purple-300 bg-clip-text text-transparent">AI Recommendations</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">Personalized suggestions to improve your focus and productivity.</p>
+          {error && <p className="text-red-500 text-sm mt-2 flex items-center gap-2"><AlertCircle className="w-4 h-4" />{error}</p>}
         </div>
-        <button
-          onClick={fetchRecommendations}
-          className="flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-600 to-purple-400 text-white font-medium hover:opacity-90 transition disabled:opacity-50"
-          title="Refresh recommendations"
-          disabled={loading}
-        >
-          <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
+        <button onClick={fetchRecommendations} className="flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-600 to-purple-400 text-white font-medium hover:opacity-90 transition disabled:opacity-50" title="Refresh recommendations" disabled={loading}>
+          <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </header>
 
-
-      {/* Main Content */}
       <main className="flex-1 px-10 py-8">
         <div className="flex items-center gap-3 mb-6">
           <Lightbulb className="w-6 h-6 text-purple-500" />
           <h2 className="text-2xl font-semibold">Active Suggestions</h2>
-          <span className="text-gray-500 dark:text-gray-400 text-sm">
-            ({recommendations.length} active)
-          </span>
+          <span className="text-gray-500 dark:text-gray-400 text-sm">({recommendations.length} active)</span>
         </div>
-
 
         {loading ? (
           <div className="flex justify-center items-center h-64">
-            <motion.div
-              className="w-10 h-10 border-4 border-purple-400 border-t-transparent rounded-full animate-spin"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.3 }}
-            />
+            <motion.div className="w-10 h-10 border-4 border-purple-400 border-t-transparent rounded-full animate-spin" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} />
           </div>
         ) : recommendations.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
@@ -477,83 +408,36 @@ const Recommendations: React.FC = () => {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
                   transition={{ duration: 0.4, ease: "easeOut" }}
-                  className={`relative rounded-2xl p-6 border transition-all duration-300 ${
-                    rec.completed ? 'opacity-60' : ''
-                  } ${
-                    rec.type === "focus"
-                      ? "bg-white dark:bg-[#121214] border-purple-200 dark:border-white/10 hover:shadow-[0_8px_30px_rgba(168,85,247,0.15)]"
-                      : "bg-white dark:bg-[#1a1a1d] border-red-200 dark:border-red-500/20 hover:shadow-[0_8px_30px_rgba(239,68,68,0.15)]"
-                  }`}
+                  className={`relative rounded-2xl p-6 border transition-all duration-300 ${rec.completed ? 'opacity-60' : ''} ${rec.type === "focus" ? "bg-white dark:bg-[#121214] border-purple-200 dark:border-white/10 hover:shadow-[0_8px_30px_rgba(168,85,247,0.15)]" : "bg-white dark:bg-[#1a1a1d] border-red-200 dark:border-red-500/20 hover:shadow-[0_8px_30px_rgba(239,68,68,0.15)]"}`}
                 >
-                  {rec.completed && (
-                    <div className="absolute top-4 right-4 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1">
-                      <Check className="w-3 h-3" />
-                      Completed
-                    </div>
-                  )}
+                  {rec.completed && <div className="absolute top-4 right-4 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1"><Check className="w-3 h-3" /> Completed</div>}
                   
-                  <div 
-                    className="cursor-pointer"
-                    onClick={() => toggleExpand(rec._id)}
-                  >
+                  <div className="cursor-pointer" onClick={() => toggleExpand(rec._id)}>
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-start gap-3 flex-1 pr-20">
-                        {rec.type === "focus" ? (
-                          <CheckCircle className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" />
-                        ) : (
-                          <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
-                        )}
+                        {rec.type === "focus" ? <CheckCircle className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />}
                         <div className="flex-1">
-                          <h2 className="font-semibold text-base leading-relaxed">
-                            {getPreviewText(rec.recommendation, 80)}
-                          </h2>
+                          <h2 className="font-semibold text-base leading-relaxed">{getPreviewText(rec.recommendation, 80)}</h2>
                         </div>
                       </div>
                     </div>
 
-
                     <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 mb-3 flex-wrap">
-                      <div className="flex items-center gap-1">
-                        <Tag className="w-4 h-4" />
-                        {rec.type.charAt(0).toUpperCase() + rec.type.slice(1)}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-4 h-4" />
-                        {formatTime(rec.timestamp)}
-                      </div>
+                      <div className="flex items-center gap-1"><Tag className="w-4 h-4" /> {rec.type.charAt(0).toUpperCase() + rec.type.slice(1)}</div>
+                      <div className="flex items-center gap-1"><Clock className="w-4 h-4" /> {formatTime(rec.timestamp)}</div>
                       {getPriorityBadge(rec.priority)}
                     </div>
 
-
                     <AnimatePresence>
                       {expandedId === rec._id && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: "auto" }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.3 }}
-                          className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed pt-3 border-t border-gray-200 dark:border-white/10"
-                        >
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed pt-3 border-t border-gray-200 dark:border-white/10">
                           {parseRecommendationText(rec.recommendation)}
-                          
                           {rec.context && (
                             <div className="mt-4 p-4 bg-gray-50 dark:bg-[#1a1a1d] rounded-lg space-y-2">
                               <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">Context</p>
-                              {rec.context.focusScore !== undefined && (
-                                <p className="text-xs text-gray-600 dark:text-gray-400">
-                                  <span className="font-medium">Focus Score:</span> {rec.context.focusScore}%
-                                </p>
-                              )}
-                              {rec.context.sessionDuration && (
-                                <p className="text-xs text-gray-600 dark:text-gray-400">
-                                  <span className="font-medium">Session Duration:</span> {Math.floor(rec.context.sessionDuration / 60)} minutes
-                                </p>
-                              )}
-                              {rec.context.distractions && rec.context.distractions.length > 0 && (
-                                <p className="text-xs text-gray-600 dark:text-gray-400">
-                                  <span className="font-medium">Distractions:</span> {rec.context.distractions.join(', ')}
-                                </p>
-                              )}
+                              {rec.context.focusScore !== undefined && <p className="text-xs text-gray-600 dark:text-gray-400"><span className="font-medium">Focus Score:</span> {rec.context.focusScore}%</p>}
+                              {rec.context.sessionDuration && <p className="text-xs text-gray-600 dark:text-gray-400"><span className="font-medium">Session Duration:</span> {Math.floor(rec.context.sessionDuration / 60)} minutes</p>}
+                              {rec.context.distractions && rec.context.distractions.length > 0 && <p className="text-xs text-gray-600 dark:text-gray-400"><span className="font-medium">Distractions:</span> {rec.context.distractions.join(', ')}</p>}
                             </div>
                           )}
                         </motion.div>
@@ -561,30 +445,12 @@ const Recommendations: React.FC = () => {
                     </AnimatePresence>
                   </div>
 
-
                   <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200 dark:border-white/10">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleComplete(rec._id);
-                      }}
-                      disabled={rec.completed}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                      title="Mark Complete"
-                    >
-                      <Check className="w-4 h-4" />
-                      {rec.completed ? 'Completed' : 'Mark Complete'}
+                    <button onClick={(e) => { e.stopPropagation(); handleComplete(rec._id); }} disabled={rec.completed} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium" title="Mark Complete">
+                      <Check className="w-4 h-4" /> {rec.completed ? 'Completed' : 'Mark Complete'}
                     </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemove(rec._id);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition text-sm font-medium"
-                      title="Remove"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Remove
+                    <button onClick={(e) => { e.stopPropagation(); handleRemove(rec._id); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition text-sm font-medium" title="Remove">
+                      <Trash2 className="w-4 h-4" /> Remove
                     </button>
                   </div>
                 </motion.div>
@@ -597,5 +463,13 @@ const Recommendations: React.FC = () => {
   );
 };
 
+const Recommendations: React.FC = () => {
+
+  return (
+    <NotificationProvider>
+      <RecommendationsContent />
+    </NotificationProvider>
+  );
+};
 
 export default Recommendations;

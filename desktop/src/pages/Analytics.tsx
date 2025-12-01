@@ -88,7 +88,7 @@ export default function Analytics() {
 
     try {
       const headers = { Authorization: `Bearer ${jwt}` };
-      const apiBase = `${BACKEND_URL}/analytics`; // Assuming BACKEND_URL is e.g. /api/v1
+      const apiBase = `${BACKEND_URL}/analytics`;
 
       // Use Promise.all to fetch data concurrently
       const [overviewRes, focusRes, appRes, distractionRes] = await Promise.all([

@@ -63,6 +63,9 @@ const FocusMode: React.FC = () => {
   // UI display
   const [apiSuccessCount, setApiSuccessCount] = useState(0);
   const [score, setScore] = useState<number>(80);
+  
+  // ✅ NEW: Live focus score for current session
+  const [liveFocusScore, setLiveFocusScore] = useState<number | null>(null);
 
   const activityState = useRef<ActivityDelta & { activeApp: ActiveApp }>({
     keystrokes: 0, mouseClicks: 0, mouseMoves: 0, scrolls: 0, idleTime: 0,
@@ -74,6 +77,36 @@ const FocusMode: React.FC = () => {
     setToast(message);
     window.setTimeout(() => setToast(""), 3000);
   };
+
+  // ✅ UPDATED: Fetch focus score from /current endpoint
+  const fetchLiveFocusScore = useCallback(
+    async (sessionId: string) => {
+      try {
+        const jwt = getJwtToken();
+        if (!jwt || !sessionId) return;
+
+        // ✅ Fetch from /current endpoint (gets full session with focusScore)
+        const res = await axios.get(`${API_BASE}/current`, {
+          headers: { Authorization: `Bearer ${jwt}` },
+        });
+        const focusScore = res.data?.session?.focusScore;
+
+        if (typeof focusScore === "number" && !Number.isNaN(focusScore)) {
+          const clampedScore = Math.max(0, Math.min(100, Math.round(focusScore)));
+          setLiveFocusScore(clampedScore);
+          setScore(clampedScore); // Update circle visualization
+          console.log(`✅ Live focus score: ${clampedScore}% from current session`);
+        } else {
+          console.warn("❌ No focusScore in current session response:", res.data);
+          setLiveFocusScore(null);
+        }
+      } catch (err: any) {
+        console.error("❌ Failed to fetch live focus score", err?.response?.data?.msg || err.message);
+        setLiveFocusScore(null);
+      }
+    },
+    []
+  );
 
   // --- Activity Data Collection ---
   const sendActivityData = useCallback(async () => {
@@ -154,6 +187,25 @@ const FocusMode: React.FC = () => {
     return () => { if (tick) clearInterval(tick); };
   }, [running, paused]);
 
+  // ✅ Poll live focus score while session is active
+  useEffect(() => {
+    if (!currentSessionId || !running || paused) {
+      setLiveFocusScore(null);
+      return;
+    }
+
+    // Initial fetch
+    fetchLiveFocusScore(currentSessionId);
+
+    // Poll every 30s while session is running
+    const intervalId = setInterval(
+      () => fetchLiveFocusScore(currentSessionId),
+      30_000
+    );
+
+    return () => clearInterval(intervalId);
+  }, [currentSessionId, running, paused, fetchLiveFocusScore]);
+
   useEffect(() => {
     let trackerInterval: NodeJS.Timeout | null = null;
     if (running && !paused) {
@@ -194,6 +246,7 @@ const FocusMode: React.FC = () => {
       setRunning(true);
       setPaused(false);
       setElapsed(0);
+      setLiveFocusScore(null); // Reset live score
       activityState.current = {
         keystrokes: 0, mouseClicks: 0, mouseMoves: 0, scrolls: 0, idleTime: 0,
         activeApp: { name: "N/A", title: "N/A", category: "neutral" }
@@ -222,6 +275,7 @@ const FocusMode: React.FC = () => {
       });
       await (window as any).electron?.pauseSession?.();
       setPaused(true); setRunning(false);
+      setLiveFocusScore(null); // Reset live score
       localStorage.setItem("focus_session_paused", "true");
       localStorage.setItem("focus_session_running", "false");
       localStorage.setItem("focus_session_elapsed", String(elapsed));
@@ -260,6 +314,7 @@ const FocusMode: React.FC = () => {
     const clearSessionState = () => {
       (window as any).electron?.endSession?.();
       setRunning(false); setPaused(false); setCurrentSessionId(null); setElapsed(0);
+      setLiveFocusScore(null); // Reset live score
       localStorage.removeItem("focus_session_running");
       localStorage.removeItem("focus_session_paused");
       localStorage.removeItem("focus_session_id");
@@ -299,8 +354,7 @@ const FocusMode: React.FC = () => {
   // Focus score visuals
   const r = 45;
   const circumference = 2 * Math.PI * r;
-  const strokeDashoffset = circumference - (score / 100) * circumference;
-
+  const strokeDashoffset = circumference - ((liveFocusScore ?? score) / 100) * circumference;
 
   return (
     <div className="flex flex-col min-h-screen transition-colors duration-300 bg-gray-50 dark:bg-[#0B0B0F]">
@@ -370,7 +424,6 @@ const FocusMode: React.FC = () => {
                   <>
                     <button
                       onClick={() => {
-                        // placeholder for startBreak if you implement
                         showToast("Break feature not wired in this mock");
                       }}
                       className="flex items-center gap-3 px-6 py-3 rounded-full bg-blue-500 text-white font-semibold shadow-md hover:brightness-95 transition"
@@ -444,34 +497,6 @@ const FocusMode: React.FC = () => {
           <aside className="bg-white dark:bg-[#121214] rounded-2xl p-6 border border-gray-200 dark:border-white/5 shadow-lg">
             <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Live Session Metrics</h3>
             <div className="flex flex-col items-center">
-              <div className="relative w-36 h-36">
-                <svg width="100%" height="100%" viewBox="0 0 110 110" className="transform -rotate-90">
-                  <defs>
-                    <linearGradient id="focus-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#34D399" />
-                      <stop offset="60%" stopColor="#a855f7" />
-                      <stop offset="100%" stopColor="#8b5cf6" />
-                    </linearGradient>
-                  </defs>
-                  <circle cx="55" cy="55" r={r} stroke="#e5e7eb" strokeWidth="10" fill="none" className="dark:stroke-[#2b2b2d]" />
-                  <circle
-                    cx="55"
-                    cy="55"
-                    r={r}
-                    stroke="url(#focus-gradient)"
-                    strokeWidth="10"
-                    strokeLinecap="round"
-                    fill="none"
-                    strokeDasharray={circumference}
-                    strokeDashoffset={strokeDashoffset}
-                    style={{ transition: "stroke-dashoffset 700ms ease" }}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <div className="text-2xl font-bold text-gray-900 dark:text-white">{score}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">Focus Score</div>
-                </div>
-              </div>
               <div className="mt-6 w-full space-y-3">
                 {[
                   {
@@ -501,12 +526,13 @@ const FocusMode: React.FC = () => {
           <pre className="text-gray-600 dark:text-gray-400 text-sm overflow-x-auto">
             Tracking Status: {running && !paused ? "ACTIVE" : paused ? "PAUSED" : "INACTIVE"} | Session ID: {currentSessionId ?? "N/A"}
             <br />
+            Live Focus Score: {liveFocusScore !== null ? `${liveFocusScore}%` : "Calculating..."}
+            <br />
             Last API Message: {lastApiStatus ?? (error ?? "Waiting for session start...")}
           </pre>
         </div>
       </main>
 
-      {/* In-app toast */}
       {toast && (
         <div
           className={`fixed right-8 bottom-24 z-[9999] px-6 py-3 rounded-2xl flex items-center gap-3
@@ -528,5 +554,3 @@ const FocusMode: React.FC = () => {
 };
 
 export default FocusMode;
-
-

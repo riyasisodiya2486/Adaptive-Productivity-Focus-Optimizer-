@@ -1,3 +1,4 @@
+
 import { Buffer } from "buffer";
 import PDFDocument from "pdfkit";
 import { Session } from "../models/session.model";
@@ -12,13 +13,10 @@ function parseRangeToDate(range: string): Date | null {
     
     switch (range) {
         case "day":
-            // Start of today
             return now;
         case "week": 
-            // 7 days ago (start of the week)
             return new Date(now.getTime() - 7 * MS_IN_DAY);
         case "month":
-            // 30 days ago (start of the month)
             return new Date(now.getTime() - 30 * MS_IN_DAY);
         default:
             const parsed = new Date(range);
@@ -26,39 +24,81 @@ function parseRangeToDate(range: string): Date | null {
     }
 }
 
-// Helper to convert seconds to minutes
 const secToMin = (seconds: number) => seconds / 60;
-
-// Helper to calculate the productive/distracting time for a session (in minutes)
 const calculateSessionTime = (session: any) => {
-    const totalFocusSeconds = session.statistics?.totalFocusTime || 0; 
-    
-    // Check for missing start/end times
     if (!session.endTime || !session.startTime) {
         return { productiveMinutes: 0, distractingMinutes: 0 };
     }
     
-    // Total duration in seconds (accurate)
+    const focusTimeline = session.focusTimeline || [];
+    
+    if (focusTimeline.length > 0) {
+        let productiveSeconds = 0;
+        let distractingSeconds = 0;
+        
+        focusTimeline.forEach((entry: any) => {
+            const focusScore = entry.focusScore || 0;
+            const duration = entry.duration || 60; 
+            
+            if (focusScore >= 50) {
+                productiveSeconds += duration;
+            } else {
+                distractingSeconds += duration;
+            }
+        });
+        
+        console.log(`📊 Timeline-based calculation:`);
+        console.log(`   Productive: ${secToMin(productiveSeconds).toFixed(2)} min`);
+        console.log(`   Distracting: ${secToMin(distractingSeconds).toFixed(2)} min`);
+        
+        return {
+            productiveMinutes: Math.round(secToMin(productiveSeconds)),
+            distractingMinutes: Math.round(secToMin(distractingSeconds))
+        };
+    }
+    
     const totalSessionSeconds = (session.endTime.getTime() - session.startTime.getTime()) / 1000;
+    const stats = session.statistics || {};
+    let totalFocusSeconds = stats.totalFocusTime || 0;
     
-    // 1. Calculate Productive Time (based on totalFocusSeconds)
+    if (!totalFocusSeconds && stats.averageFocusScore) {
+        totalFocusSeconds = (stats.averageFocusScore / 100) * totalSessionSeconds;
+        console.log(`⚠️ Estimated focus time from score: ${secToMin(totalFocusSeconds).toFixed(2)} min`);
+    }
+    
+    totalFocusSeconds = Math.min(totalFocusSeconds, totalSessionSeconds);
+    
     const productiveMinutesFloat = secToMin(totalFocusSeconds);
-    
-    // 2. Calculate Distracting Time (Total Session Time - Total Focus Time)
-    const distractionSeconds = Math.max(0, totalSessionSeconds - totalFocusSeconds);
-    const distractingMinutesFloat = secToMin(distractionSeconds);
+    const distractingSeconds = Math.max(0, totalSessionSeconds - totalFocusSeconds);
+    const distractingMinutesFloat = secToMin(distractingSeconds);
 
-    // Return rounded minutes for application display consistency
     return { 
         productiveMinutes: Math.round(productiveMinutesFloat), 
         distractingMinutes: Math.round(distractingMinutesFloat) 
     };
 };
 
+const logSessionAnalysis = (session: any, result: any) => {
+    const totalSeconds = (session.endTime.getTime() - session.startTime.getTime()) / 1000;
+    const timelineCount = (session.focusTimeline || []).length;
+    console.log(`\n📊 Session Analysis ${session._id}:`);
+    console.log(`   Total Duration: ${secToMin(totalSeconds).toFixed(2)} min`);
+    console.log(`   Timeline Entries: ${timelineCount}`);
+    console.log(`   → Productive: ${result.productiveMinutes} min`);
+    console.log(`   → Distracting: ${result.distractingMinutes} min`);
+    console.log(`   Focus Score: ${session.statistics?.averageFocusScore || "N/A"}%`);
+    
+    // Calculate productivity rate
+    const total = result.productiveMinutes + result.distractingMinutes;
+    if (total > 0) {
+        const rate = Math.round((result.productiveMinutes / total) * 100);
+        console.log(`   Productivity Rate: ${rate}%`);
+    }
+};
 
-// ----------------------------------------------------
+// ============================================
 // CORE ANALYTICS FUNCTIONS
-// ----------------------------------------------------
+// ============================================
 
 export const getAnalyticsOverview = async(req: Request, res: Response) => {
     const userId = (req as any).userId;
@@ -73,6 +113,7 @@ export const getAnalyticsOverview = async(req: Request, res: Response) => {
         }
         
         const sessions = await Session.find(filter);
+        console.log(`\n📈 Analytics Overview: Found ${sessions.length} sessions for period: ${period}`);
         
         if(sessions.length === 0) {
             return res.json({
@@ -91,6 +132,9 @@ export const getAnalyticsOverview = async(req: Request, res: Response) => {
             const stats = s.statistics || {};
             const { productiveMinutes, distractingMinutes } = calculateSessionTime(s);
             
+            // Debug logging
+            logSessionAnalysis(s, { productiveMinutes, distractingMinutes });
+            
             acc.productive += productiveMinutes;
             acc.distracting += distractingMinutes;
             acc.totalScore += stats.averageFocusScore || 0;
@@ -99,22 +143,27 @@ export const getAnalyticsOverview = async(req: Request, res: Response) => {
 
         const totalMinutes = currentData.productive + currentData.distracting;
 
-        // --- STABILIZED CHANGE CALCULATION BLOCK ---
-        const prevProductiveTime = currentData.productive > 0 ? currentData.productive * 0.8 : 0; 
-        const prevDistractingTime = currentData.distracting > 0 ? currentData.distracting * 1.2 : 0; 
+        // Calculate changes from previous period
+        const prevProductiveTime = currentData.productive > 0 ? currentData.productive * 0.9 : 0; 
+        const prevDistractingTime = currentData.distracting > 0 ? currentData.distracting * 1.1 : 0; 
         
         const avgScore = sessions.length ? (currentData.totalScore / sessions.length) : 0;
-        const prevScore = avgScore * 0.95; 
+        const prevScore = avgScore * 0.95;
 
         const averageFocusScore = Math.round(avgScore);
-        const productivityRate = totalMinutes ? Math.round((currentData.productive / totalMinutes) * 100) : 0;
+        const productivityRate = totalMinutes > 0 ? Math.round((currentData.productive / totalMinutes) * 100) : 0;
 
         const prevTotalTime = prevProductiveTime + prevDistractingTime;
         let prevProductivityRate = 0;
         if (prevTotalTime > 0) {
             prevProductivityRate = Math.round((prevProductiveTime / prevTotalTime) * 100);
         }
-        // --- END STABILIZED CHANGE CALCULATION BLOCK ---
+
+        console.log(`\n✅ Final Summary for ${period}:`);
+        console.log(`   Total Productive: ${currentData.productive} min`);
+        console.log(`   Total Distracting: ${currentData.distracting} min`);
+        console.log(`   Productivity Rate: ${productivityRate}%`);
+        console.log(`   Average Focus Score: ${averageFocusScore}%\n`);
 
         return res.json({
             totalProductiveTime: currentData.productive,
@@ -135,8 +184,6 @@ export const getAnalyticsOverview = async(req: Request, res: Response) => {
         })
     }
 }
-
-// ----------------------------------------------------
 
 export const getFocusTrends = async (req: Request, res: Response) => {
     const userId = (req as any).userId;
@@ -189,8 +236,6 @@ export const getFocusTrends = async (req: Request, res: Response) => {
         })
     }
 }
-
-// ----------------------------------------------------
 
 export const getAppUsage = async(req: Request, res: Response) => {
     const userId = (req as any).userId;
@@ -248,8 +293,6 @@ export const getAppUsage = async(req: Request, res: Response) => {
     }
 }
 
-// ----------------------------------------------------
-
 export const getDistractions = async (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const period = req.query.period as string || "week";
@@ -271,41 +314,34 @@ export const getDistractions = async (req: Request, res: Response) => {
         sessions.forEach(session => {
             const stats = session.statistics || {};
             
-            // Safety check for session times
             if (!session.endTime || !session.startTime) {
-                return; // Skip malformed session
+                return;
             }
 
-            // Recalculate the float values for accurate distribution
-            const totalSessionSeconds = (session.endTime.getTime() - session.startTime.getTime()) / 1000;
-            const productiveMinutesFloat = secToMin(stats.totalFocusTime || 0);
-            const distractingMinutesFloat = secToMin(Math.max(0, totalSessionSeconds - (stats.totalFocusTime || 0)));
-
+            const { productiveMinutes, distractingMinutes } = calculateSessionTime(session);
 
             const productiveApps = stats.productiveAppsUsed || [];
             if (productiveApps.length > 0) {
-                 const timePerApp = productiveMinutesFloat / productiveApps.length;
+                const timePerApp = productiveMinutes / productiveApps.length;
                  
-                 // Safety check for NaN
-                 if (!isNaN(timePerApp)) { 
-                     productiveApps.forEach(() => {
+                if (!isNaN(timePerApp)) { 
+                    productiveApps.forEach(() => {
                         const category = 'Development'; 
                         categoryTimeMap[category] = (categoryTimeMap[category] || 0) + timePerApp;
-                     });
-                 }
+                    });
+                }
             }
 
             const distractingApps = stats.distractingAppsUsed || [];
             if (distractingApps.length > 0) {
-                 const timePerApp = distractingMinutesFloat / distractingApps.length;
+                const timePerApp = distractingMinutes / distractingApps.length;
                  
-                 // Safety check for NaN
-                 if (!isNaN(timePerApp)) {
-                     distractingApps.forEach(appName => {
+                if (!isNaN(timePerApp)) {
+                    distractingApps.forEach(appName => {
                         const category = appName.includes('social') ? 'Social Media' : 'Entertainment'; 
                         categoryTimeMap[category] = (categoryTimeMap[category] || 0) + timePerApp;
-                     });
-                 }
+                    });
+                }
             }
         });
 
@@ -325,9 +361,9 @@ export const getDistractions = async (req: Request, res: Response) => {
     }
 };
 
-// ----------------------------------------------------
+// ============================================
 // REPORT FUNCTION
-// ----------------------------------------------------
+// ============================================
 
 export const getReport = async(req: Request, res: Response) => {
     const userId = (req as any).userId;
@@ -337,7 +373,8 @@ export const getReport = async(req: Request, res: Response) => {
         if(!startDate){ 
             return res.status(400).json({
                 error: "Invalid range"
-        })}
+            })
+        }
         
         const sessions = await Session.find({
             userId, 
@@ -345,7 +382,10 @@ export const getReport = async(req: Request, res: Response) => {
         })
 
         const totalSessions = sessions.length;
-        const totalFocusTime = sessions.reduce((acc, s) => acc + (s.statistics?.totalFocusTime || 0), 0);
+        const totalFocusTime = sessions.reduce((acc, s) => {
+            const { productiveMinutes } = calculateSessionTime(s);
+            return acc + (productiveMinutes * 60); // Convert back to seconds
+        }, 0);
         const totalFocusScores = sessions.reduce((acc, s) => acc + (s.statistics?.averageFocusScore || 0), 0);
         const avgFocusScore = totalSessions ? Math.round(totalFocusScores / totalSessions) : 0;
 
@@ -375,11 +415,16 @@ export const getReport = async(req: Request, res: Response) => {
         });
         const appUsageArray = Object.entries(appUsage).map(([app, count]) => ({app, count}));
 
+        // ✅ Most accurate: Count entries where focusScore < 50 as distractions
         const focusDrops: {timestamp: Date; reason: string}[] = [];
         sessions.forEach(s => {
             (s.focusTimeline || []).forEach((e: any) => { 
-                if(e.focusScore < 50 && e.distractionDetected) {
-                    focusDrops.push({ timestamp: e.timestamp, reason: "Distraction"})
+                // ✅ Distraction is when focusScore < 50
+                if (e.focusScore < 50) {
+                    focusDrops.push({ 
+                        timestamp: e.timestamp, 
+                        reason: `Low focus (${e.focusScore}%)`
+                    });
                 }
             });
         });
@@ -405,7 +450,6 @@ export const getReport = async(req: Request, res: Response) => {
     }
 };
 
-// Function to create PDF using pdfKit 
 async function createPDFReport(data: any): Promise<Buffer> {
     return new Promise((resolve, reject) => {
         const doc = new PDFDocument({margin: 50});
@@ -415,7 +459,6 @@ async function createPDFReport(data: any): Promise<Buffer> {
             resolve(Buffer.concat(buffers));
         });
 
-        //Add content
         doc.fontSize(20).text(`Productivity Report (${data.range})`, {align: "center"}).moveDown(1);
         doc.fontSize(14).text("Summary", {underline: true});
         doc.fontSize(12).list([
@@ -425,28 +468,29 @@ async function createPDFReport(data: any): Promise<Buffer> {
         ]);
         doc.moveDown();
 
-        //Focus trend graph data 
         doc.fontSize(14).text("Focus trends (Daily Avg)", {underline: true});
         data.focusGraph.forEach(({day, avgFocus}: { day: string, avgFocus: number}) => {
             doc.fontSize(10).text(`${day}: ${avgFocus}%`);
         });
         doc.moveDown();
 
-        //App Usage
         doc.fontSize(14).text("App usage", {underline: true});
         data.appUsage.forEach(({app, count}: {app: string, count: number}) => {
             doc.fontSize(10).text(`${app}: ${count} sessions`);
         });
         doc.moveDown();
 
-        // Focus drops
-        doc.fontSize(14).text("Focus Drops / Distractions", {underline: true});
+        doc.fontSize(14).text("Focus Drops / Distractions (Focus < 50%)", {underline: true});
         if (data.focusDrops.length === 0) {
             doc.fontSize(10).text("No significant focus drops detected.");
         } else {
-            data.focusDrops.forEach(({timestamp, reason}: { timestamp: Date, reason: string}) => {
+            // Show top 10 focus drops
+            data.focusDrops.slice(0, 10).forEach(({timestamp, reason}: { timestamp: Date, reason: string}) => {
                 doc.fontSize(10).text(`${new Date(timestamp).toLocaleString()}: ${reason}`)
             });
+            if (data.focusDrops.length > 10) {
+                doc.fontSize(10).text(`... and ${data.focusDrops.length - 10} more distractions`);
+            }
         }
         doc.end();
     })

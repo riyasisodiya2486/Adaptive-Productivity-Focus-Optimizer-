@@ -2,6 +2,373 @@ import mongoose from "mongoose";
 import { Request, Response } from "express"
 import { Activity } from "../models/activity.model";
 import { Session } from "../models/session.model";
+import { User } from "../models/user.model";
+
+
+async function categorizeApp(
+  userId: string,
+  appName: string,
+  appUrl?: string
+): Promise<"productive" | "distraction" | "neutral"> {
+  try {
+    // Get user's whitelist and blacklist
+    const user = await User.findById(userId).select(
+      "whitelistedApps blacklistedApps whitelistedUrls blacklistedUrls"
+    ).lean();
+
+    if (!user) {
+      console.warn(`[Categorization] ⚠️ User not found: ${userId}`);
+      return "neutral";
+    }
+
+    const appNameLower = appName.toLowerCase();
+    const appUrlLower = (appUrl || "").toLowerCase();
+
+    // ✅ CHECK 1: Exact app name match in whitelist
+    const isWhitelistedApp = user.whitelistedApps?.some(
+      (app) => app.toLowerCase() === appNameLower
+    );
+    if (isWhitelistedApp) {
+      console.log(
+        `[Categorization] ✅ App "${appName}" is WHITELISTED (productive)`
+      );
+      return "productive";
+    }
+
+    // ✅ CHECK 2: Exact app name match in blacklist
+    const isBlacklistedApp = user.blacklistedApps?.some(
+      (app) => app.toLowerCase() === appNameLower
+    );
+    if (isBlacklistedApp) {
+      console.log(
+        `[Categorization] ❌ App "${appName}" is BLACKLISTED (distraction)`
+      );
+      return "distraction";
+    }
+
+    // ✅ CHECK 3: URL-based categorization (for browser/web apps)
+    if (appUrl) {
+      // Check whitelist URLs
+      const isWhitelistedUrl = user.whitelistedUrls?.some(
+        (url) =>
+          appUrlLower.includes(url.toLowerCase()) ||
+          url.toLowerCase().includes(appUrlLower)
+      );
+      if (isWhitelistedUrl) {
+        console.log(
+          `[Categorization] ✅ URL "${appUrl}" is WHITELISTED (productive)`
+        );
+        return "productive";
+      }
+
+      // Check blacklist URLs
+      const isBlacklistedUrl = user.blacklistedUrls?.some(
+        (url) =>
+          appUrlLower.includes(url.toLowerCase()) ||
+          url.toLowerCase().includes(appUrlLower)
+      );
+      if (isBlacklistedUrl) {
+        console.log(
+          `[Categorization] ❌ URL "${appUrl}" is BLACKLISTED (distraction)`
+        );
+        return "distraction";
+      }
+    }
+
+    // ✅ CHECK 4: Partial name matching for common apps
+    const distractingKeywords = [
+      "instagram",
+      "facebook",
+      "twitter",
+      "tiktok",
+      "snapchat",
+      "whatsapp",
+      "telegram",
+      "discord",
+      "youtube",
+      "netflix",
+      "spotify",
+      "steam",
+      "reddit",
+      "twitch",
+      "pinterest",
+      "imgur",
+    ];
+
+    const isDistractingKeyword = distractingKeywords.some(
+      (keyword) =>
+        appNameLower.includes(keyword) || appUrlLower.includes(keyword)
+    );
+
+    if (isDistractingKeyword) {
+      console.log(
+        `[Categorization] ❌ App "${appName}" contains distraction keyword (distraction)`
+      );
+      return "distraction";
+    }
+
+    const productiveKeywords = [
+      "vs code",
+      "visual studio",
+      "intellij",
+      "pycharm",
+      "sublime",
+      "code",
+      "editor",
+      "terminal",
+      "command prompt",
+      "github",
+      "gitlab",
+      "git",
+      "notion",
+      "slack",
+      "teams",
+      "zoom",
+      "meet",
+      "postman",
+      "swagger",
+    ];
+
+    const isProductiveKeyword = productiveKeywords.some(
+      (keyword) =>
+        appNameLower.includes(keyword) || appUrlLower.includes(keyword)
+    );
+
+    if (isProductiveKeyword) {
+      console.log(
+        `[Categorization] ✅ App "${appName}" contains productive keyword (productive)`
+      );
+      return "productive";
+    }
+
+    // Default to neutral if no matches
+    console.log(
+      `[Categorization] ⚠️ App "${appName}" not categorized, defaulting to NEUTRAL`
+    );
+    return "neutral";
+  } catch (err) {
+    console.error("[Categorization] ❌ Error categorizing app:", err);
+    return "neutral";
+  }
+}
+
+export const getAppUsageForSession = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const { sessionId } = req.params;
+
+    if (!sessionId) {
+      return res.status(400).json({ msg: "Session ID is required" });
+    }
+
+    console.log(
+      `[App Usage] 📊 Calculating app usage for session: ${sessionId}`
+    );
+
+    // ✅ FIX 1: Get all activities with timestamps sorted in order
+    const activities = await Activity.find(
+      {
+        userId: new mongoose.Types.ObjectId(userId),
+        sessionId: new mongoose.Types.ObjectId(sessionId),
+      },
+      { activeApp: 1, timestamp: 1 }
+    )
+      .sort({ timestamp: 1 })
+      .lean();
+
+    console.log(`[App Usage] 📈 Found ${activities.length} activity records`);
+
+    if (activities.length === 0) {
+      return res.json({
+        sessionId,
+        appUsage: [],
+        totalSessionTime: 0,
+        note: "No activity records found for this session",
+      });
+    }
+
+    // ✅ FIX 2: Calculate time between consecutive records
+    const appTimeMap = new Map<
+      string,
+      {
+        name: string;
+        title?: string;
+        category?: string;
+        url?: string;
+        actualCategory: "productive" | "distraction" | "neutral";
+        totalSeconds: number;
+        recordCount: number;
+      }
+    >();
+
+    // Track consecutive activities for same app
+    for (let i = 0; i < activities.length - 1; i++) {
+      const current = activities[i];
+      const next = activities[i + 1];
+
+      // Skip if no active app
+      if (!current.activeApp?.name) {
+        console.warn(`[App Usage] ⚠️ Activity ${i} has no activeApp`);
+        continue;
+      }
+
+      const appName = current.activeApp.name;
+
+      // Calculate time difference between consecutive records
+      const currentTime = new Date(current.timestamp).getTime();
+      const nextTime = new Date(next.timestamp).getTime();
+      const timeDiffMs = nextTime - currentTime;
+      const timeDiffSeconds = timeDiffMs / 1000;
+
+      // ✅ FIX 3: Filter out unrealistic gaps (> 1 minute = app probably became inactive)
+      const MAX_GAP_SECONDS = 60;
+      const effectiveTime =
+        timeDiffSeconds > MAX_GAP_SECONDS ? MAX_GAP_SECONDS : timeDiffSeconds;
+
+      // ✅ NEW: Categorize the app using user's lists
+      const actualCategory = await categorizeApp(
+        userId,
+        appName,
+        current.activeApp.url
+      );
+
+      // Accumulate time for this app
+      if (!appTimeMap.has(appName)) {
+        appTimeMap.set(appName, {
+          name: appName,
+          title: current.activeApp.title,
+          category: current.activeApp.category,
+          url: current.activeApp.url,
+          actualCategory: actualCategory,
+          totalSeconds: 0,
+          recordCount: 0,
+        });
+      }
+
+      const appData = appTimeMap.get(appName)!;
+      appData.totalSeconds += effectiveTime;
+      appData.recordCount += 1;
+    }
+
+    // ✅ FIX 4: Add final interval (from last record to now or session end)
+    const lastActivity = activities[activities.length - 1];
+    if (lastActivity?.activeApp?.name) {
+      const lastActivityTime = new Date(lastActivity.timestamp).getTime();
+      const now = Date.now();
+      const finalIntervalMs = now - lastActivityTime;
+      const finalIntervalSeconds = Math.min(finalIntervalMs / 1000, 60); // Cap at 60s
+
+      // ✅ NEW: Categorize the last app
+      const lastActualCategory = await categorizeApp(
+        userId,
+        lastActivity.activeApp.name,
+        lastActivity.activeApp.url
+      );
+
+      if (!appTimeMap.has(lastActivity.activeApp.name)) {
+        appTimeMap.set(lastActivity.activeApp.name, {
+          name: lastActivity.activeApp.name,
+          title: lastActivity.activeApp.title,
+          category: lastActivity.activeApp.category,
+          url: lastActivity.activeApp.url,
+          actualCategory: lastActualCategory,
+          totalSeconds: 0,
+          recordCount: 0,
+        });
+      }
+
+      const appData = appTimeMap.get(lastActivity.activeApp.name)!;
+      appData.totalSeconds += finalIntervalSeconds;
+    }
+
+    // ✅ FIX 5: Convert to sorted results with categorization
+    const results = Array.from(appTimeMap.values())
+      .map((app) => ({
+        name: app.name,
+        title: app.title || "Unknown",
+        recordCategory: app.category || "Other", // Original category from tracking
+        userCategory: app.actualCategory, // ✅ NEW: User-defined category
+        url: app.url,
+        recordCount: app.recordCount,
+        seconds: Math.round(app.totalSeconds),
+        minutes: Number((app.totalSeconds / 60).toFixed(2)),
+        hours: Number((app.totalSeconds / 3600).toFixed(2)),
+        percentage: 0, // Will calculate after
+      }))
+      .sort((a, b) => b.seconds - a.seconds);
+
+    // Calculate percentages
+    const totalSeconds = results.reduce((sum, app) => sum + app.seconds, 0);
+    results.forEach((app) => {
+      app.percentage =
+        totalSeconds > 0
+          ? Number(((app.seconds / totalSeconds) * 100).toFixed(2))
+          : 0;
+    });
+
+    // ✅ NEW: Calculate productive vs distraction time
+    const productiveTime = results
+      .filter((app) => app.userCategory === "productive")
+      .reduce((sum, app) => sum + app.seconds, 0);
+    const distractingTime = results
+      .filter((app) => app.userCategory === "distraction")
+      .reduce((sum, app) => sum + app.seconds, 0);
+    const neutralTime = results
+      .filter((app) => app.userCategory === "neutral")
+      .reduce((sum, app) => sum + app.seconds, 0);
+
+    console.log(`[App Usage] ✅ Calculated usage for ${results.length} apps`);
+    console.log(
+      `[App Usage] 📊 Total session time: ${totalSeconds}s = ${(
+        totalSeconds / 60
+      ).toFixed(2)}m`
+    );
+    console.log(
+      `[App Usage] 📊 Productive: ${productiveTime}s (${((productiveTime / totalSeconds) * 100).toFixed(1)}%)`
+    );
+    console.log(
+      `[App Usage] 📊 Distracting: ${distractingTime}s (${((distractingTime / totalSeconds) * 100).toFixed(1)}%)`
+    );
+    console.log(
+      `[App Usage] 📊 Neutral: ${neutralTime}s (${((neutralTime / totalSeconds) * 100).toFixed(1)}%)`
+    );
+
+    return res.json({
+      sessionId,
+      appUsage: results,
+      totalSessionTime: {
+        seconds: totalSeconds,
+        minutes: Number((totalSeconds / 60).toFixed(2)),
+        hours: Number((totalSeconds / 3600).toFixed(2)),
+      },
+      timeBreakdown: {
+        productive: {
+          seconds: productiveTime,
+          minutes: Number((productiveTime / 60).toFixed(2)),
+          percentage: Number(
+            ((productiveTime / totalSeconds) * 100).toFixed(2)
+          ),
+        },
+        distraction: {
+          seconds: distractingTime,
+          minutes: Number((distractingTime / 60).toFixed(2)),
+          percentage: Number(
+            ((distractingTime / totalSeconds) * 100).toFixed(2)
+          ),
+        },
+        neutral: {
+          seconds: neutralTime,
+          minutes: Number((neutralTime / 60).toFixed(2)),
+          percentage: Number(((neutralTime / totalSeconds) * 100).toFixed(2)),
+        },
+      },
+      recordsAnalyzed: activities.length,
+    });
+  } catch (err) {
+    console.error("[App Usage] ❌ Error computing app usage:", err);
+    return res.status(500).json({ msg: "Failed to compute app usage" });
+  }
+};
 
 
 export const logActivityBatch = async(req: Request, res:Response) => {
@@ -121,146 +488,7 @@ export const getActivities = async (req: Request, res: Response) => {
     }
 };
 
-export const getAppUsageForSession = async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).userId;
-    const { sessionId } = req.params;
-    if (!sessionId) {
-      return res.status(400).json({ msg: "Session ID is required" });
-    }
 
-    console.log(`[App Usage] 📊 Calculating app usage for session: ${sessionId}`);
-
-    // ✅ FIX 1: Get all activities with timestamps sorted in order
-    const activities = await Activity.find(
-      { 
-        userId: new mongoose.Types.ObjectId(userId), 
-        sessionId: new mongoose.Types.ObjectId(sessionId) 
-      },
-      { activeApp: 1, timestamp: 1 }
-    ).sort({ timestamp: 1 }).lean();
-
-    console.log(`[App Usage] 📈 Found ${activities.length} activity records`);
-
-    if (activities.length === 0) {
-      return res.json({ 
-        sessionId, 
-        appUsage: [],
-        totalSessionTime: 0,
-        note: "No activity records found for this session"
-      });
-    }
-
-    // ✅ FIX 2: Calculate time between consecutive records
-    const appTimeMap = new Map<string, {
-      name: string;
-      title?: string;
-      category?: string;
-      totalSeconds: number;
-      recordCount: number;
-    }>();
-
-    // Track consecutive activities for same app
-    for (let i = 0; i < activities.length - 1; i++) {
-      const current = activities[i];
-      const next = activities[i + 1];
-      
-      // Skip if no active app
-      if (!current.activeApp?.name) {
-        console.warn(`[App Usage] ⚠️ Activity ${i} has no activeApp`);
-        continue;
-      }
-
-      const appName = current.activeApp.name;
-      
-      // Calculate time difference between consecutive records
-      const currentTime = new Date(current.timestamp).getTime();
-      const nextTime = new Date(next.timestamp).getTime();
-      const timeDiffMs = nextTime - currentTime;
-      const timeDiffSeconds = timeDiffMs / 1000;
-
-      // ✅ FIX 3: Filter out unrealistic gaps (> 1 minute = app probably became inactive)
-      const MAX_GAP_SECONDS = 60;
-      const effectiveTime = timeDiffSeconds > MAX_GAP_SECONDS ? MAX_GAP_SECONDS : timeDiffSeconds;
-
-      // Accumulate time for this app
-      if (!appTimeMap.has(appName)) {
-        appTimeMap.set(appName, {
-          name: appName,
-          title: current.activeApp.title,
-          category: current.activeApp.category,
-          totalSeconds: 0,
-          recordCount: 0,
-        });
-      }
-
-      const appData = appTimeMap.get(appName)!;
-      appData.totalSeconds += effectiveTime;
-      appData.recordCount += 1;
-    }
-
-    // ✅ FIX 4: Add final interval (from last record to now or session end)
-    const lastActivity = activities[activities.length - 1];
-    if (lastActivity?.activeApp?.name) {
-      const lastActivityTime = new Date(lastActivity.timestamp).getTime();
-      const now = Date.now();
-      const finalIntervalMs = now - lastActivityTime;
-      const finalIntervalSeconds = Math.min(finalIntervalMs / 1000, 60); // Cap at 60s
-
-      if (!appTimeMap.has(lastActivity.activeApp.name)) {
-        appTimeMap.set(lastActivity.activeApp.name, {
-          name: lastActivity.activeApp.name,
-          title: lastActivity.activeApp.title,
-          category: lastActivity.activeApp.category,
-          totalSeconds: 0,
-          recordCount: 0,
-        });
-      }
-
-      const appData = appTimeMap.get(lastActivity.activeApp.name)!;
-      appData.totalSeconds += finalIntervalSeconds;
-    }
-
-    // ✅ FIX 5: Convert to sorted results
-    const results = Array.from(appTimeMap.values())
-      .map(app => ({
-        name: app.name,
-        title: app.title || "Unknown",
-        category: app.category || "Other",
-        recordCount: app.recordCount,
-        seconds: Math.round(app.totalSeconds),
-        minutes: Number((app.totalSeconds / 60).toFixed(2)),
-        hours: Number((app.totalSeconds / 3600).toFixed(2)),
-        percentage: 0, // Will calculate after
-      }))
-      .sort((a, b) => b.seconds - a.seconds);
-
-    // Calculate percentages
-    const totalSeconds = results.reduce((sum, app) => sum + app.seconds, 0);
-    results.forEach(app => {
-      app.percentage = totalSeconds > 0 
-        ? Number(((app.seconds / totalSeconds) * 100).toFixed(2))
-        : 0;
-    });
-
-    console.log(`[App Usage] ✅ Calculated usage for ${results.length} apps`);
-    console.log(`[App Usage] 📊 Total session time: ${totalSeconds}s = ${(totalSeconds / 60).toFixed(2)}m`);
-
-    return res.json({ 
-      sessionId, 
-      appUsage: results,
-      totalSessionTime: {
-        seconds: totalSeconds,
-        minutes: Number((totalSeconds / 60).toFixed(2)),
-        hours: Number((totalSeconds / 3600).toFixed(2)),
-      },
-      recordsAnalyzed: activities.length,
-    });
-  } catch (err) {
-    console.error("[App Usage] ❌ Error computing app usage:", err);
-    return res.status(500).json({ msg: "Failed to compute app usage" });
-  }
-};
 
 export const getAppUsageForSessionAdvanced = async (req: Request, res: Response) => {
   try {

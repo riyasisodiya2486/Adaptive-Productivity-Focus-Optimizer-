@@ -9,7 +9,7 @@ interface IUser {
         eyeTrackingEnabled: boolean;
         notificationEnabled: boolean;
         focusThreshold: number;
-        breakDuration:  number;
+        breakDuration: number;
         workHours: {
             start: string;
             end: string;
@@ -105,6 +105,7 @@ const userSchema: mongoose.Schema<IUser> = new mongoose.Schema({
             'Snapchat',
             'WhatsApp Desktop',
             'Telegram Desktop',
+            'Telegram',
             'Discord',
             'YouTube',
             'Netflix',
